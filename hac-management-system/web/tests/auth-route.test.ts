@@ -126,6 +126,36 @@ describe("authentication REST API", () => {
     expect(response.status).toBe(403);
     expect(mock.loginRateLimit.upsert).not.toHaveBeenCalled();
   });
+  it.each(["private-invalid-value", '"https://hac.test"', "mysql://private-user:private-password@private-host/private-db"])(
+    "handles an invalid APP_ORIGIN without leaking its value or querying the database",
+    async (value) => {
+      process.env.APP_ORIGIN = value;
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const response = await POST(
+          request("login", { email: user.email, password }),
+          context("login"),
+        );
+        expect(response.status).toBe(503);
+        const body = await response.json();
+        expect(body.error.code).toBe("AUTH_CONFIGURATION_ERROR");
+        expect(JSON.stringify(body)).not.toContain(value);
+        expect(JSON.stringify(log.mock.calls)).not.toContain(value);
+        expect(mock.loginRateLimit.upsert).not.toHaveBeenCalled();
+        expect(mock.user.findUnique).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    },
+  );
+  it("uses the configured HTTPS origin behind a proxy", async () => {
+    process.env.APP_ORIGIN = "https://hac.test/";
+    const response = await POST(
+      request("login", { email: user.email, password }),
+      context("login"),
+    );
+    expect(response.status).toBe(200);
+  });
   it("returns only safe session-user fields and revokes the current session on logout", async () => {
     const token = newSessionToken();
     mock.session.findUnique.mockResolvedValue({

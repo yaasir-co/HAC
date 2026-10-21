@@ -6,6 +6,8 @@ The application implements a real database-backed inspection workflow and keeps 
 
 See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for verified functionality and remaining work. This is an initial integrated implementation, not a completed or certified production platform. Full requirements are preserved in [docs/PRODUCT_REQUIREMENTS.md](docs/PRODUCT_REQUIREMENTS.md).
 
+For a direct GitHub import into Hostinger, use [Hostinger setup and sign-in troubleshooting](docs/HOSTINGER_SETUP.md), including the `APP_ORIGIN` fix, real database configuration and one-time administrator creation.
+
 ## Development
 
 For Windows PowerShell, follow [the exact Windows installation instructions](docs/WINDOWS_SETUP.md). They use Node.js 24, Git for Windows and Docker Desktop with Linux containers. The scripts generate fresh local secrets; do not copy the workspace .env or credential files.
@@ -65,6 +67,6 @@ The AI studio stores real camera/uploaded images and implements TensorFlow Mobil
 - [AI architecture](AI_MODEL_ARCHITECTURE.md), [security](SECURITY.md)
 - [Deployment and recovery](DEPLOYMENT.md), [testing](TESTING.md)
 - [Implementation status](IMPLEMENTATION_STATUS.md), [offline/mobile status](docs/OFFLINE_AND_MOBILE.md)
-- [Windows installation](docs/WINDOWS_SETUP.md)
+- [Hostinger setup](docs/HOSTINGER_SETUP.md), [Windows installation](docs/WINDOWS_SETUP.md)
 
 No public deployment, production database changes, domain changes or external notifications were performed.

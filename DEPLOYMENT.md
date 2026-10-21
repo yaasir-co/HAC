@@ -2,6 +2,8 @@
 
 No production service has been deployed. A successful build or local demonstration does not establish production readiness. Review `IMPLEMENTATION_STATUS.md` and `TESTING.md` for observed validation and remaining blockers.
 
+For a direct GitHub import into Hostinger Web App, follow [Hostinger setup](docs/HOSTINGER_SETUP.md) for build/runtime settings, the hosted `APP_ORIGIN` login fix, database diagnostics and private one-time administrator creation. The local Docker setup below is for development.
+
 ## Local prerequisites and setup
 
 Use the existing isolated checkout at `/workspace/HAC`; no additional worktree is required. The web directory is `hac-management-system/web`. This application requires Node.js 24.19 or newer within the Node 24 release line, npm, MySQL 8.4 and a persistent private filesystem. Local database setup uses Docker Compose. GPU hardware is not required for the initial CPU embedding workflow. For Windows prerequisites and exact PowerShell commands, use [Windows setup](docs/WINDOWS_SETUP.md).
