@@ -10,7 +10,7 @@ See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for verified functional
 
 For Windows PowerShell, follow [the exact Windows installation instructions](docs/WINDOWS_SETUP.md). They use Node.js 24, Git for Windows and Docker Desktop with Linux containers. The scripts generate fresh local secrets; do not copy the workspace .env or credential files.
 
-Requires Node.js 24, npm, and Docker Compose with a working Docker daemon. Run commands from `hac-management-system/web`:
+Requires Node.js 24.19 or newer within the Node 24 release line, npm, and Docker Compose with a working Docker daemon. Run commands from `hac-management-system/web`:
 
 ```bash
 npm ci --cache /tmp/hac-npm-cache
@@ -32,6 +32,20 @@ npm run dev
 ```
 
 The standard Prisma deploy/status and schema drift checks passed against local MySQL. The database setup documentation also includes the guarded local fallback used while the engine download was initially blocked. Production migrations must be reviewed and run with the standard Prisma deployment workflow; the local fallback refuses remote databases.
+
+## Build from the repository root
+
+The application remains in `hac-management-system/web`. The root `package.json` forwards common commands there, so a build service that starts at the repository root can find the project. With Node.js 24.19 or newer within Node 24, run from `HAC`:
+
+```bash
+npm ci
+npm run build
+npm start
+```
+
+Root installation runs a locked installation in the web directory, including the development dependencies needed to compile the application. The build generates the Prisma client and prepares the standalone Next.js server. `npm start` requires the application's configured MySQL database, applied migrations and private environment configuration; complete the local setup above before starting it on your machine. These root commands do not create a database, apply migrations, seed records or deploy a service. Root `npm test`, `npm run typecheck` and `npm run dev` also forward to the web application.
+
+If a build service supports an application/root directory, prefer `hac-management-system/web`, with install command `npm ci --include=dev`, build command `npm run build`, and start command `npm start`. This also lets the service detect Next.js directly. See [build-directory configuration](DEPLOYMENT.md#repository-root-builds-and-application-directory) for details. Follow [Windows setup](docs/WINDOWS_SETUP.md) for the complete PowerShell installation sequence.
 
 ## Inspection workflow
 

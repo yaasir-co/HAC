@@ -1,0 +1,16 @@
+{
+  "name": "hac-platform",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "postinstall": "npm ci --prefix hac-management-system/web --include=dev --no-audit --no-fund",
+    "dev": "npm --prefix hac-management-system/web run dev",
+    "build": "npm --prefix hac-management-system/web run build",
+    "start": "npm --prefix hac-management-system/web start",
+    "test": "npm --prefix hac-management-system/web test",
+    "typecheck": "npm --prefix hac-management-system/web run typecheck"
+  }
+}
