@@ -38,6 +38,14 @@ This is a substantial working integration, **not the completed production platfo
 
 Private run results, demo login credentials, generated reports, images and backups are under the ignored `.local/` and `uploads/` paths. Credentials are not printed or committed. Integration fixtures remain in the local database and are marked fictional.
 
+## MARML workspace follow-up — 21 October 2026
+
+The additive migration adds a 39th model, `RawMaterialListing`, and permits unknown company registration numbers without inventing them. Administration can import the 39 visible material rows from the supplied pages, ten companies, and five supervisors with two company assignments each. Administrators can edit company/location details, supervisor identities/assignments/passwords, and interpreted material fields while retaining the original source transcription. No real supervisor email addresses were supplied; the editable defaults use reserved `.test` login identifiers.
+
+Supervisors can start an inspection immediately for a currently assigned active company/location with a published checklist. Concurrent starts resume one existing visit. Saved observations feed a landscape MARML-style register in the PDF and workbook; existing details, checklist, evidence and signatures remain available. Source dates, administrator review and original company identity constrain MARML verification. Importing the historical list does not issue certificates or establish approval for the other companies.
+
+Observed validation for this follow-up: all 235 unit tests across 21 suites and the production build passed; two focused desktop/mobile browser tests passed. A separate disposable MySQL database passed standard migrations, initial administrator creation, import, all five supervisor logins and scoped company lists, concurrent/self-start authorization, material editing/review/expiry, saved observations, checklist/signatures, submission, actual PDF download/content, immutable snapshot/PDF reuse after later edits, source-company identity checks, password/session revocation, immediate reassignment and repeat-import preservation. The database and its generated credentials were removed afterward. These checks used local validation records; no Hostinger database or public deployment was changed by this work. See [MARML workspace setup](docs/MARML_WORKSPACE.md) for the opt-in migration and administrator import steps.
+
 ## Exact remaining work
 
 1. **Real recognition acceptance:** collect representative independent photographs of the actual product catalogue and background/confusing items; perform leakage-reviewed field evaluation, threshold calibration and live camera tests on common Android devices. Complete the full camera-led Keells acceptance scenario with those real observations. Synthetic lifecycle checks do not satisfy this acceptance test.

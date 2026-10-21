@@ -17,7 +17,16 @@ export const inspectionInclude = {
   },
   observations: {
     include: {
-      product: { include: { brand: true, manufacturer: true } },
+      product: {
+        include: {
+          brand: true,
+          manufacturer: true,
+          supplier: true,
+          rawMaterialListing: {
+            include: { sourceCompany: { select: { legalName: true } } },
+          },
+        },
+      },
       recognitionPrediction: true,
       variant: true,
       evidence: true,

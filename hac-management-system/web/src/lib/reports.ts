@@ -9,6 +9,11 @@ import {
 } from "pdf-lib";
 import ExcelJS from "exceljs";
 import QRCode from "qrcode";
+import {
+  appendMarmlInspectionRegister,
+  MARML_REPORT_HEADERS,
+  marmlInspectionRows,
+} from "./marml-report";
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue =>
@@ -84,7 +89,7 @@ export function summarizeInspection(value: unknown) {
     ).length,
     brandMismatches: count("BRAND_MISMATCH"),
     variantMismatches: count("PRODUCT_VARIANT_MISMATCH", "VARIANT_MISMATCH"),
-    expiredCertificates: count("CERTIFICATE_EXPIRED"),
+    expiredCertificates: count("CERTIFICATE_EXPIRED", "MARML_CERTIFICATE_EXPIRED"),
     expiredProducts: count("PHYSICAL_PRODUCT_EXPIRED"),
     restricted: count(
       "EXPLICITLY_RESTRICTED",
@@ -396,7 +401,8 @@ export async function renderInspectionPdf(
     bold = await document.embedFont(StandardFonts.HelveticaBold);
   const isDraft = !data.submittedAt,
     layout = new PageLayout(document, normal, bold, meta, isDraft);
-  layout.newPage("Inspection report");
+  appendMarmlInspectionRegister(document, normal, bold, data, meta);
+  layout.newPage("Inspection details");
   layout.paragraph(company.legalName || company.tradingName, {
     size: 22,
     bold: true,
@@ -730,6 +736,14 @@ export async function renderInspectionWorkbook(
     };
     return sheet;
   };
+  const register = add(
+    "MARML inspection register",
+    [...MARML_REPORT_HEADERS],
+    marmlInspectionRows(data).map((entry) => entry.values),
+  );
+  register.getColumn(2).width = 40;
+  register.getColumn(6).width = 48;
+  register.getColumn(13).width = 42;
   add(
     "Inspection",
     ["Field", "Value"],

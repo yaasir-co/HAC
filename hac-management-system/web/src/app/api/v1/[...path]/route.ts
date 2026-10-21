@@ -26,6 +26,7 @@ import {
 } from "@/lib/inspection";
 import { physicalExpiryInstant, verifyProduct } from "@/lib/verification";
 import { prepareEvidence } from "@/lib/evidence";
+import { startInspectionNow, startInspectionSchema } from "@/lib/start-inspection";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const ADMIN = ["SUPER_ADMIN", "HAC_ADMIN"];
@@ -38,6 +39,7 @@ const productInclude = {
   brand: true,
   manufacturer: true,
   supplier: true,
+  rawMaterialListing: true,
   variants: true,
   scopes: { include: { certificate: { include: { holder: true } } } },
   companies: {
@@ -232,7 +234,7 @@ async function get(
             items: {
               include: {
                 product: {
-                  include: { brand: true, manufacturer: true, variants: true },
+                  include: { brand: true, manufacturer: true, variants: true, rawMaterialListing: true },
                 },
               },
             },
@@ -776,6 +778,11 @@ async function post(
   user: AuthUser,
 ): Promise<Response> {
   const [resource, recordId, action] = path;
+  if (resource === "inspections" && recordId === "start-now" && !action) {
+    const input = await body(request, startInspectionSchema);
+    const result = await startInspectionNow(user, input);
+    return json(result.inspection, result.created ? 201 : 200);
+  }
   if (resource === "verification") {
     requireRole(user, INSPECTORS);
     const p = await body(
@@ -1408,7 +1415,10 @@ async function post(
         z.object({
           legalName: text,
           tradingName: text.optional(),
-          registrationNumber: text,
+          registrationNumber: z.preprocess(
+            (value) => typeof value === "string" ? value.trim() || null : value ?? null,
+            text.nullable(),
+          ),
           category: text.default("RETAILER"),
           industry: text.optional(),
           email: z.email().optional(),

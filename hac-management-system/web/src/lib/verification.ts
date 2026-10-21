@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma, PrismaClient } from "@prisma/client";
 
-export const VERIFICATION_RULE_VERSION = "hac-verification/1.0.0";
+export const VERIFICATION_RULE_VERSION = "hac-verification/1.1.0";
 
 export interface VerificationInput {
   productId?: string | null;
@@ -20,6 +20,20 @@ export interface VerificationInput {
 }
 
 type DateValue = Date | string;
+export interface VerificationMarmlListing {
+  id: string;
+  sourceCompanyId: string;
+  sourceCompanyName: string;
+  sourceCompany?: { legalName: string } | null;
+  sourceDocument: string;
+  sourcePage: number;
+  rowNumber: number;
+  certificateBody?: string | null;
+  certificateExpiry?: DateValue | null;
+  reviewStatus: string;
+  version?: number;
+  updatedAt?: DateValue;
+}
 export interface VerificationProduct {
   id: string;
   itemCode: string;
@@ -35,6 +49,7 @@ export interface VerificationProduct {
   }>;
   updatedAt?: DateValue;
   isDemo?: boolean;
+  rawMaterialListing?: VerificationMarmlListing | null;
 }
 export interface VerificationCertificate {
   id: string;
@@ -117,6 +132,11 @@ export const VERIFICATION_LABELS: Record<string, string> = {
   IDENTITY_UNCERTAIN: "Identity Not Confirmed",
   INSUFFICIENT_INFORMATION: "Insufficient Information",
   MANUAL_HAC_REVIEW_REQUIRED: "Manual HAC Review Required",
+  MARML_REVIEW_REQUIRED: "Listed in MARML — Administrator Review Required",
+  MARML_CERTIFICATE_EXPIRED: "MARML Certificate Date Expired",
+  OUT_OF_MARML_SCOPE: "MARML Applies to a Different Company",
+  MARML_SUSPENDED: "MARML Approval Suspended",
+  MARML_REVOKED: "MARML Approval Revoked",
 };
 
 export interface VerificationRule {
@@ -157,10 +177,15 @@ export interface VerificationResult {
   requiresAction: boolean;
   warnings: string[];
   restrictions: VerificationRecords["restrictions"];
+  approvalBasis: "CERTIFICATE" | "ADMIN_VERIFIED_MARML" | null;
 }
 
 const normalize = (value: string) =>
   value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en");
+const legalIdentity = (value: string) => normalize(value)
+  .replace(/[^a-z0-9\s]/g, " ")
+  .replace(/\b(ltd|limited|pvt|private)\b/g, " ")
+  .replace(/\s+/g, " ").trim();
 const date = (value: DateValue): Date => {
   const result = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(result.getTime()))
@@ -181,9 +206,12 @@ const isActive = (status?: string) =>
 const priorities = [
   "EXPLICITLY_RESTRICTED",
   "CERTIFICATE_REVOKED",
+  "MARML_REVOKED",
   "CERTIFICATE_SUSPENDED",
+  "MARML_SUSPENDED",
   "PHYSICAL_PRODUCT_EXPIRED",
   "CERTIFICATE_EXPIRED",
+  "MARML_CERTIFICATE_EXPIRED",
   "REQUIRED_LICENSE_EXPIRED",
   "BRAND_MISMATCH",
   "MANUFACTURER_MISMATCH",
@@ -191,8 +219,10 @@ const priorities = [
   "BARCODE_MISMATCH",
   "COMPANY_RELATIONSHIP_NOT_VERIFIED",
   "OUT_OF_CERTIFICATION_SCOPE",
+  "OUT_OF_MARML_SCOPE",
   "APPROVAL_PENDING",
   "IDENTITY_UNCERTAIN",
+  "MARML_REVIEW_REQUIRED",
   "APPROVAL_NOT_FOUND",
   "INSUFFICIENT_INFORMATION",
   "MANUAL_HAC_REVIEW_REQUIRED",
@@ -238,6 +268,7 @@ export function evaluateVerification(
   const add = (outcome: string) => outcomes.add(outcome);
   let selectedScope: VerificationScope | undefined;
   let selectedStatus: string | undefined;
+  let marmlReady = false;
   const applicableRestrictions: VerificationRecords["restrictions"] = [];
 
   if (!input.companyId) {
@@ -422,7 +453,7 @@ export function evaluateVerification(
         productScopes[0].certificate.id,
       );
     }
-    if (!productScopes.length) {
+    if (!productScopes.length && !product.rawMaterialListing) {
       add("APPROVAL_NOT_FOUND");
       addRule(
         "approval.scope",
@@ -634,6 +665,58 @@ export function evaluateVerification(
         }
       }
     }
+    const listing = product.rawMaterialListing;
+    if (listing) {
+      const sourceIdentityMatches = !!listing.sourceCompany &&
+        legalIdentity(listing.sourceCompany.legalName) === legalIdentity(listing.sourceCompanyName);
+      const scopeMatches = listing.sourceCompanyId === input.companyId && sourceIdentityMatches;
+      const reviewed = listing.reviewStatus === "VERIFIED";
+      // The source contains printed calendar dates, inclusive through the Sri Lankan day.
+      const expiresAt = listing.certificateExpiry
+        ? physicalExpiryInstant(date(listing.certificateExpiry).toISOString().slice(0, 10))
+        : null;
+      const expired = !!expiresAt && expiresAt.getTime() < timestamp;
+      const reference = `${listing.sourceDocument}, page ${listing.sourcePage}, row ${listing.rowNumber}`;
+      warnings.push(
+        `MARML reference: ${reference}. Source company: ${listing.sourceCompanyName}. A source-list entry does not renew a certificate or extend its company scope.`,
+      );
+      addRule(
+        "marml.company-scope",
+        scopeMatches ? "PASS" : "REVIEW",
+        scopeMatches
+          ? "The inspected company matches the company named on the supplied MARML."
+          : "The inspected company or its current legal identity does not match the company named in the retained MARML source. This entry cannot establish approval for this inspection.",
+        "RawMaterialListing", listing.id, input.companyId, listing.sourceCompanyId,
+      );
+      addRule(
+        "marml.administrator-review",
+        reviewed ? "PASS" : "REVIEW",
+        reviewed
+          ? "An authorized administrator has verified the current MARML entry; its original transcription remains retained."
+          : "The supplied entry has not been verified for current use, or its approval is suspended or revoked.",
+        "RawMaterialListing", listing.id, listing.reviewStatus, "VERIFIED",
+      );
+      addRule(
+        "marml.certificate-date",
+        expiresAt && !expired ? "PASS" : "REVIEW",
+        !expiresAt
+          ? "The MARML certificate expiry is missing; current approval cannot be established from this entry."
+          : expired
+            ? "The certificate date printed or subsequently recorded on the MARML entry has passed."
+            : "The recorded MARML certificate date has not passed; company scope and administrator review are still required.",
+        "RawMaterialListing", listing.id, expiresAt?.toISOString() ?? null,
+        `Unexpired at ${evaluatedAt.toISOString()}`,
+      );
+      // A historical list does not override the independently evaluated certificate scope.
+      if (!selectedScope) {
+        if (!scopeMatches) add("OUT_OF_MARML_SCOPE");
+        if (!reviewed || !expiresAt) add("MARML_REVIEW_REQUIRED");
+        if (expired) add("MARML_CERTIFICATE_EXPIRED");
+        if (listing.reviewStatus === "REVOKED") add("MARML_REVOKED");
+        if (listing.reviewStatus === "SUSPENDED") add("MARML_SUSPENDED");
+        marmlReady = scopeMatches && reviewed && !!expiresAt && !expired;
+      }
+    }
     for (const license of records.licenses) {
       if (
         license.required === false ||
@@ -717,14 +800,14 @@ export function evaluateVerification(
       `Unexpired at ${evaluatedAt.toISOString()}`,
     );
   }
-  if (product && selectedScope && outcomes.size === 0) add("VERIFIED_APPROVED");
+  if (product && (selectedScope || marmlReady) && outcomes.size === 0) add("VERIFIED_APPROVED");
   else if (
     product &&
-    selectedScope &&
+    (selectedScope || marmlReady) &&
     outcomes.size === 1 &&
     outcomes.has("IDENTITY_UNCERTAIN") &&
-    isActive(selectedScope.certificate.status) &&
-    date(selectedScope.certificate.expiresAt).getTime() >= timestamp
+    (marmlReady || (selectedScope && isActive(selectedScope.certificate.status) &&
+      date(selectedScope.certificate.expiresAt).getTime() >= timestamp))
   )
     add("APPROVED_REQUIRES_PHYSICAL_CONFIRMATION");
   if (!outcomes.size) add("INSUFFICIENT_INFORMATION");
@@ -794,6 +877,7 @@ export function evaluateVerification(
     requiresAction: list.some((outcome) => outcome !== "VERIFIED_APPROVED"),
     warnings,
     restrictions: applicableRestrictions,
+    approvalBasis: selectedScope ? "CERTIFICATE" : marmlReady ? "ADMIN_VERIFIED_MARML" : null,
   };
 }
 
@@ -806,7 +890,10 @@ export async function verifyProduct(
   const product = input.productId
     ? await database.product.findUnique({
         where: { id: input.productId },
-        include: { brand: true, manufacturer: true, variants: true },
+        include: {
+          brand: true, manufacturer: true, variants: true,
+          rawMaterialListing: { include: { sourceCompany: { select: { legalName: true } } } },
+        },
       })
     : null;
   if (!product)

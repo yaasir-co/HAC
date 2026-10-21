@@ -8,6 +8,8 @@ See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for verified functional
 
 For a direct GitHub import into Hostinger, use [Hostinger setup and sign-in troubleshooting](docs/HOSTINGER_SETUP.md), including the `APP_ORIGIN` fix and opt-in database/administrator setup through the standard `npm run build` dropdown option.
 
+For the supplied material list, ten companies, five supervisors and MARML-style inspection reports, see [MARML workspace setup](docs/MARML_WORKSPACE.md).
+
 ## Development
 
 For Windows PowerShell, follow [the exact Windows installation instructions](docs/WINDOWS_SETUP.md). They use Node.js 24, Git for Windows and Docker Desktop with Linux containers. The scripts generate fresh local secrets; do not copy the workspace .env or credential files.
