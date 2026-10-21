@@ -11,7 +11,7 @@ The application uses Prisma 7 with the MariaDB driver adapter against MySQL 8.4.
 | Catalogue | Product → Brand, Manufacturer, optional Supplier; ProductVariant provides unique SKU and optional unique barcode |
 | Certification | Certificate → holder Company, CertificateScope → exact Product/optional ProductVariant; optional manufacturing facility; CertificateHistory preserves status effective dates; renewal self-reference identifies replacements |
 | Policy inputs | License separates commercial licenses from HAC certificates; RestrictionRecord requires an explicit authority/reference/effective period |
-| Inspections | Inspection → company, location, assigned inspector, published checklist version; Observation, ChecklistResponse, InspectionFinding, InspectionEvidence, InspectionSignature |
+| Inspections | Inspection → company, location, assigned inspector, optional checklist version; Observation, ChecklistResponse, InspectionFinding, InspectionEvidence, InspectionSignature. Published question edits create a new version; removal retires future availability. |
 | Follow-up | Investigation and InvestigationEvent, Complaint, NonConformity → CorrectiveAction |
 | Reporting | InspectionReport stores immutable revision/format references, integrity hashes, private storage filenames and snapshot hash |
 | Recognition | TrainingDataset → TrainingImage and ModelVersion; RecognitionPrediction records actual model version and candidates |

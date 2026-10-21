@@ -231,3 +231,33 @@
     max-height: 58vh;
   }
 }
+
+.scanHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.scanEyebrow { color: #285944; font-size: 11px; font-weight: 750; letter-spacing: 1.3px; }
+.livePill { padding: 5px 11px; border: 1px solid #a9cfbc; border-radius: 999px; background: #edf8f1; color: #17452e; font-size: 12px; white-space: nowrap; font-weight: 700; }
+.cameraEmpty { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; background: #102b36; color: #fff; text-align: center; padding: 20px; }
+.cameraEmpty span { color: #e2ece7; font-size: 13px; }
+.cameraActions { display: flex; gap: 10px; flex-wrap: wrap; padding: 16px 0 12px; }
+.cameraActions > * { flex: 1 1 140px; justify-content: center; }
+.uploadButton { position: relative; overflow: hidden; flex-direction: row; cursor: pointer; }
+.uploadButton input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.uploadButton:focus-within { outline: 3px solid #17644f; outline-offset: 3px; }
+.scanStatus { color: #263a32; min-height: 48px; margin-top: 14px; font-size: 13px; }
+.objectCandidate { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; border-bottom: 1px solid #e1e9e4; }
+.objectCandidate > div { min-width: 0; }
+.objectCandidate strong, .objectCandidate small { display: block; }
+.objectCandidate small { color: #374151; font-size: 12px; margin-top: 5px; }
+.testOnly { color: #374151; font-size: 12px; text-align: right; }
+.emptyScan { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; padding: 36px 16px; background: #f2f7f4; border-radius: 12px; color: #234537; margin: 18px 0; }
+.panel .muted, .panel small, .table td { color: #374151; }
+.panel .button { min-height: 44px; }
+:global(html[data-large-text="true"]) .studio :is(p, label, input, select, button, h3) { font-size: 17px; line-height: 1.6; }
+:global(html[data-large-text="true"]) .studio :is(small, .muted, .testOnly) { font-size: 14px; }
+@media (max-width: 760px) {
+  .panel { padding: 18px 14px; border-radius: 16px; }
+  .control { min-height: 46px; font-size: 16px; }
+  .button { min-height: 46px; white-space: normal; }
+  .toolbar { gap: 8px; }
+  .objectCandidate { flex-wrap: wrap; }
+  .cameraActions > * { min-width: 0; flex: 1 1 130px; }
+}

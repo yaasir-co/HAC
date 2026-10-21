@@ -8,8 +8,8 @@ export type VisualInput =
   | HTMLCanvasElement;
 
 /** Frozen, official ImageNet MobileNet weights with the classification head removed. */
-export async function loadVisualModel() {
-  const network = await tf.loadLayersModel(EXTRACTOR.url);
+export async function loadVisualModel(modelUrl: string = EXTRACTOR.url) {
+  const network = await tf.loadLayersModel(modelUrl);
   const features = tf.model({
     inputs: network.inputs,
     outputs: network.getLayer("global_average_pooling2d_1").output,

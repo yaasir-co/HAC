@@ -76,7 +76,7 @@ export async function prepareImage(bytes: Buffer) {
     blurScore: sumSquared / n - (sum / n) ** 2,
   };
 }
-export async function extractImage(bytes: Buffer) {
+export async function extractImage(bytes: Buffer, visualModel?: VisualModel) {
   const { data: pixels, info } = await sharp(bytes, {
     limitInputPixels: 20_000_000,
   })
@@ -85,7 +85,7 @@ export async function extractImage(bytes: Buffer) {
     .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  const model = await extractor(),
+  const model = visualModel ?? await extractor(),
     start = performance.now();
   const tensor = tf.tensor3d(
     new Uint8Array(pixels),

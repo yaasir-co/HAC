@@ -45,6 +45,10 @@ import {
 } from "lucide-react";
 import TrainingStudio from "@/components/ai/TrainingStudio";
 import Scanner from "@/components/ai/Scanner";
+import LiveProductSearch from "./LiveProductSearch";
+import ReadabilityControls from "./ReadabilityControls";
+import ChecklistManager from "./ChecklistManager";
+import { cleanObservationInput } from "@/lib/observation-input";
 import WorkspaceSetup, { MaterialSourceDetails } from "./WorkspaceSetup";
 import StartInspectionButton, { canStartInspection } from "./StartInspection";
 import { api, array, date, label, Row } from "./client";
@@ -341,6 +345,7 @@ export default function Portal({ route }: { route: string[] }) {
             </span>
           </div>
           <div className="topbar-right">
+            <ReadabilityControls />
             <span className="business-zone">Asia / Colombo</span>
             <Link
               className="icon-button"
@@ -401,9 +406,11 @@ export default function Portal({ route }: { route: string[] }) {
               <TrainingStudio />
             </>
           ) : module === "scanner" ? (
-            <StandaloneScanner />
+            <StandaloneScanner canManageTests={admin} />
           ) : module === "reports" ? (
             <Reports />
+          ) : module === "checklists" && admin ? (
+            <ChecklistManager />
           ) : module === "settings" ? (
             <Settings user={user} />
           ) : module === "workspace-setup" ? (
@@ -949,9 +956,8 @@ const fieldConfig: Record<string, Field[]> = {
     },
     {
       key: "checklistVersionId",
-      title: "Checklist template version",
+      title: "Checklist (optional)",
       resource: "checklists",
-      required: true,
     },
     { key: "objectives", title: "Objectives", type: "textarea" },
   ],
@@ -1874,7 +1880,7 @@ function DetailModal({
 function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
   const [inspection, setInspection] = useState<Row | null>(null),
     [error, setError] = useState(""),
-    [tab, setTab] = useState("overview"),
+    [tab, setTab] = useState("products"),
     [busy, setBusy] = useState(false),
     [productId, setProductId] = useState<string | null>(null),
     [predictionId,setPredictionId]=useState<string|undefined>(),
@@ -1948,13 +1954,13 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
     ? `${Math.floor((tick - new Date(ins.startedAt).valueOf()) / 60000)} min`
     : "Not started";
   const sections = [
-    ["overview", "Overview", LayoutDashboard],
-    ["scanner", "Live scanner", ScanLine],
     ["products", "Products", Package],
-    ["checklist", "Checklist", ListChecks],
-    ["findings", "Findings", AlertTriangle],
-    ["evidence", "Evidence", Paperclip],
+    ["scanner", "Live scanner", ScanLine],
     ["summary", "Submit & export", FileCheck2],
+    ["checklist", "Checklist (optional)", ListChecks],
+    ["evidence", "Evidence", Paperclip],
+    ["findings", "Findings", AlertTriangle],
+    ["overview", "Overview", LayoutDashboard],
   ];
   function select(pid: string, vid?: string, recognitionId?: string) {
     setProductId(pid);
@@ -2023,6 +2029,7 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
           </button>
         </div>
       )}
+      <details className="inspection-summary"><summary>Visit summary · {observations.length} products recorded</summary>
       <div className="inspection-stat-bar">
         <div>
           <span>
@@ -2057,6 +2064,7 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
           </strong>
         </div>
       </div>
+      </details>
       <div className="inspection-tabs" role="tablist">
         {sections.map(([key, title, Icon]) => {
           const I = Icon as typeof Activity;
@@ -2100,10 +2108,9 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
                 <dd>{date(ins.startedAt, true)}</dd>
               </div>
               <div>
-                <dt>Checklist version</dt>
+                <dt>Optional checklist</dt>
                 <dd>
-                  {ins.checklistVersion?.template?.name ?? "HAC inspection"} · v
-                  {ins.checklistVersion?.version ?? "—"}
+                  {ins.checklistVersion ? `${ins.checklistVersion.template?.name ?? "Inspection"} · v${ins.checklistVersion.version}` : "None selected"}
                 </dd>
               </div>
               <div>
@@ -2136,9 +2143,9 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
                   "Identify, verify and confirm physical observations.",
                 ],
                 [
-                  "Complete checklist",
-                  questions.length > 0 && responses.length >= questions.length,
-                  "Answer the applicable general inspection questions.",
+                  "Optional checklist",
+                  responses.length >= questions.length,
+                  "Add general inspection answers when useful. You may skip this step.",
                 ],
                 [
                   "Review and sign",
@@ -2192,28 +2199,20 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
                 : "This inspection is submitted. Its observations are preserved."}
             </div>
           )}
-          <Scanner inspectionId={id} onSelect={select} />
+          <Scanner inspectionId={id} onSelect={select} canManageTests={isAdmin} />
         </>
       )}
       {tab === "products" && (
         <section className="panel">
+          {started && <div className="product-entry"><LiveProductSearch select={select} /><div className="product-entry-actions"><button type="button" className="button secondary" onClick={() => setTab("scanner")}><ScanLine size={18} />Scan with camera</button><button type="button" className="button secondary" onClick={() => setUnknown(true)}><Plus size={18} />Product not listed?</button></div></div>}
           <div className="panel-heading">
             <div>
-              <h2>Product verification checklist</h2>
+              <h2>Saved products</h2>
               <p>
-                {observations.length} saved observations · counts may overlap
-                across findings
+                {observations.length} saved observations
               </p>
             </div>
-            {started && (
-              <button
-                className="button primary small"
-                onClick={() => setTab("scanner")}
-              >
-                <Plus size={16} />
-                Examine product
-              </button>
-            )}
+
           </div>
           {observations.length ? (
             <div className="table-scroll">
@@ -2277,8 +2276,7 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
             <div>
               <h2>General inspection checklist</h2>
               <p>
-                Answers are saved to this inspection and the selected template
-                version.
+                Optional: save any useful answers. Unanswered questions do not block submission.
               </p>
             </div>
             <span className="count-pill">
@@ -2302,7 +2300,7 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
           ) : (
             <Empty
               title="No checklist questions"
-              description="Assign a versioned checklist before submission."
+              description="You can submit this visit without a checklist."
             />
           )}
         </section>
@@ -2556,12 +2554,11 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
         <UnknownModal
           inspection={ins}
           close={() => setUnknown(false)}
-          saved={() => {
+          saved={async (product: Row) => {
             setUnknown(false);
-            setNotice(
-              "Provisional product and investigation saved. No official approval has been granted.",
-            );
-            load();
+            await load();
+            setNotice("Provisional product and investigation saved. Confirm its physical identity to record the observation.");
+            select(product.id);
           }}
         />
       )}
@@ -2579,85 +2576,7 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
     </>
   );
 }
-function ProductSearch({
-  select,
-}: {
-  select: (id: string, variantId?: string) => void;
-}) {
-  const [q, setQ] = useState(""),
-    [rows, setRows] = useState<Row[]>([]),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  async function search(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      setRows(
-        array(await api(`/products?q=${encodeURIComponent(q)}&pageSize=12`)),
-      );
-      setError("");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <section className="panel spaced">
-      <div className="panel-heading">
-        <div>
-          <h2>Search the HAC catalogue</h2>
-          <p>Use a product name, barcode, brand or item code.</p>
-        </div>
-        <Search size={20} className="muted" />
-      </div>
-      <form className="inline-search" onSubmit={search}>
-        <div className="search-field">
-          <Search size={18} />
-          <input
-            aria-label="Find product"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Product name, item code or barcode…"
-          />
-        </div>
-        <button className="button primary" disabled={busy}>
-          {busy ? (
-            <LoaderCircle className="spin" size={17} />
-          ) : (
-            <Search size={17} />
-          )}
-          Search
-        </button>
-      </form>
-      <ErrorBox error={error} />
-      {rows.length > 0 && (
-        <div className="product-search-grid">
-          {rows.map((p) => (
-            <button
-              className="search-product"
-              key={p.id}
-              onClick={() => select(p.id, p.variants?.[0]?.id)}
-            >
-              <span className="product-tile-icon">
-                <Package size={26} />
-              </span>
-              <div>
-                <strong>{p.name}</strong>
-                <small>
-                  {p.brand?.name} · {p.itemCode}
-                </small>
-                <span>{p.variants?.[0]?.name ?? p.category}</span>
-              </div>
-              <ChevronRight size={17} />
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-function StandaloneScanner() {
+function StandaloneScanner({ canManageTests }: { canManageTests: boolean }) {
   const [id, setId] = useState<string | null>(null),
     [vid, setVid] = useState<string | undefined>(),
     [companies, setCompanies] = useState<Row[]>([]),
@@ -2700,6 +2619,7 @@ function StandaloneScanner() {
       </section>
       <ErrorBox error={error} />
       <Scanner
+        canManageTests={canManageTests}
         onSelect={(pid, variantId) => {
           if (!companyId) {
             setError(
@@ -2756,18 +2676,18 @@ function VerificationModal({
         setProduct(p);
         setForm((f) => ({
           ...f,
-          variantId: variantId ?? p.variants?.[0]?.id,
+          variantId: variantId ?? (p.variants?.length === 1 ? p.variants[0].id : undefined),
           observedBrand: p.brand?.name ?? "",
           observedManufacturer: p.manufacturer?.name ?? "",
           observedBarcode:
             (
               p.variants?.find((v: Row) => v.id === variantId) ??
-              p.variants?.[0]
+              (p.variants?.length === 1 ? p.variants[0] : undefined)
             )?.barcode ?? "",
           observedVariant:
             (
               p.variants?.find((v: Row) => v.id === variantId) ??
-              p.variants?.[0]
+              (p.variants?.length === 1 ? p.variants[0] : undefined)
             )?.name ?? "",
         }));
       })
@@ -2785,7 +2705,7 @@ function VerificationModal({
     if (body.quantity !== "" && body.quantity != null)
       body.quantity = Number(body.quantity);
     else delete body.quantity;
-    return body;
+    return cleanObservationInput(body);
   }
   async function evaluate() {
     setBusy(true);
@@ -3242,7 +3162,7 @@ function ChecklistQuestion({
             <span className="section-eyebrow">{question.section}</span>
             <h3>
               {question.text}
-              {question.required && <span className="required-star"> *</span>}
+              <span className="small-text muted"> (optional)</span>
             </h3>
           </div>
           {done && (
@@ -3263,7 +3183,7 @@ function ChecklistQuestion({
                     <input
                       type="radio"
                       name={`q-${question.id}`}
-                      required={question.required}
+                      required={false}
                       value={val}
                       checked={answer === val}
                       disabled={!editable}
@@ -3280,7 +3200,7 @@ function ChecklistQuestion({
           ) : (
             <input
               aria-label="Checklist answer"
-              required={question.required}
+              required={false}
               type={
                 question.type === "NUMERIC"
                   ? "number"
@@ -3331,7 +3251,7 @@ function UnknownModal({
 }: {
   inspection: Row;
   close: () => void;
-  saved: () => void;
+  saved: (product: Row) => void | Promise<void>;
 }) {
   const [form, setForm] = useState<Row>({ priority: "NORMAL" }),
     [error, setError] = useState(""),
@@ -3340,11 +3260,11 @@ function UnknownModal({
     e.preventDefault();
     setBusy(true);
     try {
-      await api(`/inspections/${inspection.id}/unknown`, {
+      const result = await api(`/inspections/${inspection.id}/unknown`, {
         method: "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...cleanObservationInput(form), description: form.description?.trim() || "" }),
       });
-      saved();
+      await saved(result.product);
     } catch (e) {
       setError((e as Error).message);
     } finally {

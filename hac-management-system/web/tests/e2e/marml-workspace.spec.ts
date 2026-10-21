@@ -136,8 +136,8 @@ test("a supervisor starts an assigned-company inspection without a schedule or i
     dialog.getByRole("combobox", { name: "Location *", exact: true }),
   ).toHaveValue(companies[0].locations[0].id);
   await expect(
-    dialog.getByRole("combobox", { name: "Checklist *", exact: true }),
-  ).toHaveValue(checklist.id);
+    dialog.getByRole("combobox", { name: "Checklist (optional)", exact: true }),
+  ).toHaveValue("");
   await expect(dialog.locator('input[type="datetime-local"]')).toHaveCount(0);
   await dialog
     .getByRole("button", { name: "Start inspection", exact: true })
@@ -146,7 +146,6 @@ test("a supervisor starts an assigned-company inspection without a schedule or i
   expect(posted).toEqual({
     companyId: companies[0].id,
     locationId: companies[0].locations[0].id,
-    checklistVersionId: checklist.id,
     type: "ROUTINE",
   });
   await expect(

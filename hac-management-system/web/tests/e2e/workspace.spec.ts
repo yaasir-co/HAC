@@ -43,7 +43,7 @@ test("sign in and inspect the live database workspace on desktop and mobile", as
   ).toBeVisible();
   await page.getByRole("tab", { name: "Products", exact: false }).click();
   await expect(
-    page.getByRole("heading", { name: "Product verification checklist" }),
+    page.getByRole("heading", { name: "Saved products" }),
   ).toBeVisible();
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto("/dashboard");
@@ -98,8 +98,7 @@ test("camera permission failure remains actionable without invented predictions"
   ).toBeVisible();
   await page.getByRole("button", { name: "Start camera", exact: true }).click();
   await expect(page.getByText(/Camera unavailable:/)).toBeVisible();
-  await page.getByRole("textbox", { name: "Product search" }).fill("rice");
-  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await page.getByRole("textbox", { name: "Find product" }).fill("rice");
   await expect(
     page.getByRole("button", { name: /Rice.*Review/ }).first(),
   ).toBeVisible();

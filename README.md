@@ -10,6 +10,8 @@ For a direct GitHub import into Hostinger, use [Hostinger setup and sign-in trou
 
 For the supplied material list, ten companies, five supervisors and MARML-style inspection reports, see [MARML workspace setup](docs/MARML_WORKSPACE.md).
 
+For live product search, optional checklists, device text size and the experimental object scanner, see [Mobile inspections](docs/MOBILE_INSPECTIONS.md).
+
 ## Development
 
 For Windows PowerShell, follow [the exact Windows installation instructions](docs/WINDOWS_SETUP.md). They use Node.js 24, Git for Windows and Docker Desktop with Linux containers. The scripts generate fresh local secrets; do not copy the workspace .env or credential files.

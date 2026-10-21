@@ -12,7 +12,7 @@ const ADMIN_ROLES = ["SUPER_ADMIN", "HAC_ADMIN"];
 export const startInspectionSchema = z.object({
   companyId: id,
   locationId: id,
-  checklistVersionId: id,
+  checklistVersionId: id.nullable().optional(),
   type: z.enum([
     "INITIAL", "ROUTINE", "SURVEILLANCE", "RENEWAL", "FOLLOW_UP",
     "COMPLAINT", "SPECIAL", "UNANNOUNCED",
@@ -49,7 +49,7 @@ export async function startInspectionNow(
         const [company, location, checklist] = await Promise.all([
           tx.company.findUnique({ where: { id: input.companyId } }),
           tx.companyLocation.findUnique({ where: { id: input.locationId } }),
-          tx.checklistTemplateVersion.findUnique({ where: { id: input.checklistVersionId } }),
+          input.checklistVersionId ? tx.checklistTemplateVersion.findUnique({ where: { id: input.checklistVersionId } }) : Promise.resolve(null),
         ]);
         if (!company || company.archivedAt || company.status !== "ACTIVE") {
           throw new ApiError(422, "COMPANY_UNAVAILABLE", "Choose an active company.");
@@ -57,7 +57,7 @@ export async function startInspectionNow(
         if (!location?.isActive || location.companyId !== company.id) {
           throw new ApiError(422, "INVALID_LOCATION", "Choose an active location belonging to this company.");
         }
-        if (!checklist || checklist.status !== "PUBLISHED") {
+        if (input.checklistVersionId && (!checklist || checklist.status !== "PUBLISHED")) {
           throw new ApiError(422, "INVALID_CHECKLIST", "Choose a published inspection checklist.");
         }
         const existing = await tx.inspection.findFirst({
@@ -70,7 +70,7 @@ export async function startInspectionNow(
             companyId: company.id,
             locationId: location.id,
             inspectorId: user.id,
-            checklistVersionId: checklist.id,
+            checklistVersionId: checklist?.id ?? null,
             type: input.type,
             objectives: input.objectives,
             priority: "NORMAL",
@@ -87,7 +87,7 @@ export async function startInspectionNow(
           companyId: company.id,
           locationId: location.id,
           inspectorId: user.id,
-          checklistVersionId: checklist.id,
+          checklistVersionId: checklist?.id ?? null,
           status: "IN_PROGRESS",
           startedAt: at,
         }, company.id);

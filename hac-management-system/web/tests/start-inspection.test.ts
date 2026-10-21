@@ -64,6 +64,13 @@ afterAll(() => {
 });
 
 describe("supervisor on-demand inspection start", () => {
+  it("starts without a checklist and does not query a fabricated template", async () => {
+    const input = startInspectionSchema.parse({ companyId: "company-1", locationId: "location-1" });
+    const result = await startInspectionNow(user(), input, state.client as never);
+    expect(result.inspection.checklistVersionId).toBeNull();
+    expect(tx.checklistTemplateVersion.findUnique).not.toHaveBeenCalled();
+  });
+
   it("starts an assigned company visit directly in progress and audits its server-owned identity/time", async () => {
     const response = await POST(request({ objectives: "Check incoming raw materials" }), context());
     expect(response.status).toBe(201);
