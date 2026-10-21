@@ -85,6 +85,17 @@ export function handleError(error: unknown): Response {
     name: error instanceof Error ? error.name : "UnknownError",
     database: databaseDiagnostic(error)?.code,
   });
+  if (databaseDiagnostic(error)?.code === "DATABASE_SCHEMA_NOT_READY")
+    return Response.json(
+      {
+        error: {
+          code: "DATABASE_SCHEMA_NOT_READY",
+          message:
+            "The application database update is pending. An administrator must apply the latest database migrations before these records can load.",
+        },
+      },
+      { status: 503 },
+    );
   return Response.json(
     {
       error: {

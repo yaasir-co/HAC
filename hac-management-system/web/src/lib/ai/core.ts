@@ -80,6 +80,9 @@ export function rank(embedding: number[], artifact: Artifact) {
     first.score < artifact.threshold ||
     Boolean(second && first.score - second.score < artifact.margin);
   return {
+    bestSimilarity: first?.score ?? -1,
+    similarityMargin: first && second ? first.score - second.score : 2,
+    backgroundClosest: !first || first.productId === null,
     candidates: ordered
       .filter((entry): entry is Candidate => entry.productId !== null)
       .slice(0, 3),

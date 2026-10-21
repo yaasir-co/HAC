@@ -394,6 +394,7 @@ model Observation {
   id                      String                 @id @default(cuid())
   inspectionId            String
   productId               String?
+  identityKey             String?
   variantId               String?
   observedName            String?
   observedBrand           String?
@@ -423,6 +424,7 @@ model Observation {
   investigations          Investigation[]
 
   @@index([inspectionId, createdAt])
+  @@unique([inspectionId, identityKey])
 }
 
 model ChecklistResponse {
@@ -733,4 +735,17 @@ model CertificateHistory {
   certificate   Certificate @relation(fields: [certificateId], references: [id])
 
   @@index([certificateId, effectiveAt])
+}
+
+model CatalogueImage {
+  id         String   @id @default(cuid())
+  kind       String
+  ownerId    String
+  storedName String
+  mimeType   String
+  sha256     String
+  byteSize   Int
+  uploadedById String
+  updatedAt  DateTime @updatedAt
+  @@unique([kind, ownerId])
 }

@@ -89,3 +89,5 @@ test("administrator bulk uploads 105 images with counts, progress and resumable 
     page.getByRole("button", { name: "Approve and publish" }),
   ).toHaveCount(0);
 });
+
+test.beforeEach(async ({page})=>{await page.addInitScript(()=>localStorage.setItem("hac-install-dismissed","1"));});

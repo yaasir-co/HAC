@@ -3741,3 +3741,21 @@ html[data-large-text="true"] .mobile-bottom a { font-size: 12px; }
   .quick-confirm-backdrop { align-items: end; padding: 12px 12px max(14px, env(safe-area-inset-bottom)); }
   .quick-confirm { width: 100%; border-radius: 22px; }
 }
+
+/* Catalogue identity photos remain separate from HAC approval indicators. */
+.catalogue-picture{width:60px;height:60px;flex:0 0 60px;border:1px solid #dce4e7;border-radius:12px;background:#f3f6f7;display:inline-flex;align-items:center;justify-content:center;overflow:hidden;color:#193a46}
+.catalogue-picture img{width:100%;height:100%;object-fit:contain;background:#fff}
+.catalogue-name{display:flex;align-items:center;gap:12px;min-width:210px}
+.catalogue-image-editor{display:flex;gap:18px;align-items:flex-start;margin:18px 0;padding:16px;background:#f4f7f8;border-radius:14px}
+.catalogue-image-editor>.catalogue-picture{width:112px;height:112px;flex-basis:112px}
+.catalogue-image-editor p{margin:8px 0;color:#253f49}
+.catalogue-image-editor label.button{display:inline-flex;cursor:pointer}
+.catalogue-image-editor .button{margin:4px}
+.unlisted-photo{display:grid;gap:12px}.unlisted-photo>img{width:100%;max-height:220px;object-fit:contain;border:1px solid #ccd9df;border-radius:14px;background:#f3f6f7}
+.checkbox-label{display:flex!important;align-items:center;gap:10px}.checkbox-label input{width:22px;height:22px;flex:none}
+.search-product:disabled{opacity:1;background:#edf5f1;cursor:default}.already-added{font-weight:700;color:#12593f;font-size:13px}
+.hac-wordmark{width:80px;height:60px;object-fit:contain;background:white;border-radius:4px;padding:2px;flex:none}
+@media(max-width:520px){.catalogue-image-editor{flex-wrap:wrap}.simple-heading{flex-wrap:wrap}.simple-heading>.catalogue-picture{width:52px;height:52px;flex-basis:52px}.simple-heading>div{flex:1;min-width:160px}}
+.install-hac{position:fixed;left:16px;right:16px;bottom:max(16px,env(safe-area-inset-bottom));z-index:300;display:flex;align-items:flex-start;gap:12px;padding:20px;background:#fff;border:1px solid #c4d7df;border-radius:20px;box-shadow:0 8px 50px #102b3655;max-width:540px;margin:auto;color:#102b36}
+.install-hac>img{width:70px;height:70px;object-fit:contain}.install-hac h2{font-size:19px;margin:0 0 8px}.install-hac p{font-size:15px;color:#1a3440;margin:8px 0}.install-actions{display:flex;gap:10px;margin-top:12px}.install-shortcut{position:absolute;right:24px;top:85px;z-index:2;font-size:12px;color:#135e78;background:none;border:0;padding:4px;cursor:pointer}
+@media(display-mode:standalone){.install-shortcut{display:none}}

@@ -67,7 +67,8 @@ Additional administrator links:
 
 An observation requires `clientMutationId` (8–100 characters) and `conclusion`; accepted fields include `version`, `productId`, `variantId`, `observedName`, `observedBrand`, `observedManufacturer`, `observedBarcode`, `observedVariant`, `identityConfirmed`, `physicalExpiry`, `manufactureDate`, `batch`, `quantity`, `storageLocation`, `notes`, `overrideReason` and optional `recognitionPredictionId`. The prediction reference must belong to the acting inspector and this inspection; it can confirm only one observation. The saved snapshot retains the original prediction/model and accepted product. Reusing a mutation key with different content is rejected. Approval-like conclusions that contradict calculated issues require a recorded reason; they do not change certification records. Saved content changes invalidate prior declarations. Submitted observations cannot be edited through these handlers.
 
-`unknown` requires `name`; accepts `kind` (`PRODUCT`/`RAW_MATERIAL`), `clientMutationId` and optional observed brand/manufacturer/barcode/description/reason. It returns `{observation,catalogueChanged:false}`. The observation has no master product link. Reusing a mutation key with different content is rejected.
+`unknown` requires a multipart photo, `name`, observed `brandName`, `kind` and `clientMutationId`; additional identity/physical fields are described below. It returns `{observation,catalogueChanged:false}`. The observation has no master product link. Reusing a mutation key with different content is rejected.
+
 
 `submit` still requires `{version,declaration:true}`. The assigned supervisor may confirm electronically without a drawn signature; a representative signature is optional. An administrator cannot create an inspector declaration on another user's behalf. Authoritative-source reconciliation and snapshot immutability remain enforced.
 
@@ -101,3 +102,12 @@ Administrator-only `GET /ai/training-library?datasetId=...&productId=...` return
 | GET | `/reports/{inspectionId}?format=pdf|xlsx|metadata` | Internal inspector/HAC controlled document/download metadata |
 
 Explicit `modelVersionId` testing is administrator-only. Recognition does not approve a product. See `AI_MODEL_ARCHITECTURE.md` for minimum capture-group diversity and honest evaluation limits; see `REPORT_SPECIFICATION.md` for upload sizes, storage, hashes and report content.
+
+### Catalogue photos and unlisted photo observations
+
+- `GET /catalogue-images/{product|company}/{id}`: authenticated private display image, byte-hash verified; company access is checked for logos.
+- `POST /catalogue-images/{product|company}/{id}`: HAC administrator multipart upload with `file` (JPEG/PNG, max 8 MB); re-encoded privately. Returns `{imageUrl}`. Does not change approval or train the model.
+- `DELETE /catalogue-images/{product|company}/{id}`: HAC administrator removes the current display image.
+- Catalogue/search, mobile inspection and prediction responses include `imageUrl` when present. List searches load lean product metadata and only the raw-material expiry summary, not full certificate/source histories.
+- `POST /inspections/{id}/unknown` now requires multipart form data: `file`, `name`, `brandName`, `kind`, `clientMutationId`; optional `manufacturerName`, `barcode`, `batch`, `quantity`, `physicalExpiry` (YYYY-MM-DD), `description`. Photo and inspection-only observation commit atomically. JSON-only requests receive `PHOTO_REQUIRED`.
+- `/observations` requires an existing `productId`; use `/unknown` for photographed unlisted records. `ALREADY_INSPECTED` rejects a duplicate product identity across variants/mutation keys. A database unique index also protects concurrent inserts. Exact retry keys retain the existing idempotency checks.

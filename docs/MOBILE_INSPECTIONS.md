@@ -10,7 +10,7 @@ Deploy this branch after merging it into the GitHub branch used by Hostinger. Se
 2. Type a product name, brand, barcode or item code; lightweight matches update automatically. Earlier requests are cancelled and failed requests expose Retry instead of loading indefinitely.
 3. Tap an item, then **Yes, add**. It is saved immediately; there is no second save form. Approval checks run on the server.
 4. **Scan items** opens the camera popup. Up to three product predictions appear over the preview. Tap a match and **Yes, add**; scanning continues. This requires a published product model.
-5. **Not in HAC list?** records a name and product/material type on this inspection only. It never creates a master catalogue product.
+5. **Not in HAC list?** records a required photo, name and observed brand on this inspection only. It never creates a master catalogue product.
 6. **Finish inspection → Confirm & submit inspection** records the supervisor's authenticated confirmation. No uploaded/drawn signature or representative signature is mandatory. Then **Download inspection PDF**. At least one saved item is required.
 
 Use **Text size** in the header to enable larger text on a device. The setting is stored on that device/browser; it does not enlarge text on other phones. Normal text remains the default, with stronger contrast for all devices. Phone model names are not inferred from screen width: an A25 user can enable large text while a Redmi user retains normal size. Browser/OS zoom remains available.
@@ -50,6 +50,20 @@ Open **AI training studio**, select/create a library and search for the product 
 
 Collect genuine packaging photographs with varied viewpoints, lighting and backgrounds, and also add **Unrelated / background photos**. Similar images are grouped to prevent leakage; at least three independent groups per class are necessary. Do not treat sequential nearly identical frames as independent test photos.
 
-Training saves progress in the database and extracts real TensorFlow features eight images per request. Keep the page open; reopen the library and **Resume training** after interruption. Libraries support up to 10,000 images. Finish uploads before training; changing the library invalidates an active job. Training-only diverse prototypes cap the published index at 24 vectors per product/variant/background class. Validation tunes parameters; held-out tests measure accuracy and background false identification. A failed model cannot be published. **Approve and publish** is a separate administrator action. No image count guarantees packaging accuracy; representative field validation is still necessary.
+Training saves progress in the database and extracts real TensorFlow features eight images per request. Keep the page open; reopen the library and **Resume training** after interruption. Libraries support up to 10,000 images. Finish uploads before training; changing the library invalidates an active job. Training-only diverse prototypes cap the published index at 24 vectors per product/variant class and 96 for varied background examples. Validation tunes parameters; held-out tests measure accuracy and background false identification. A failed model cannot be published. **Approve and publish** is a separate administrator action. No image count guarantees packaging accuracy; representative field validation is still necessary.
 
 See [Hostinger setup](HOSTINGER_SETUP.md#pdf-download-permission-errors-eacces) for private report storage recovery.
+
+## Catalogue identity photos and one item per visit
+
+An administrator opens **Product catalogue** (also raw materials) or **Companies**, opens the record, and uses **Add image / Replace image / Remove image**. JPEG/PNG files up to 8 MB are accepted. Photos/logos appear in catalogue lists, live search, inspection lists and product camera candidates. These display photos do not automatically become training samples and do not establish HAC approval.
+
+A product is recorded once per inspection, regardless of which variant or camera prediction selected it. Saved matches show **Added** and cannot be selected again. The server enforces the same rule across fresh mutation keys, concurrent tabs and retries. An exact retry of a successful request remains idempotent. Previous duplicate observations and submitted reports are retained rather than rewritten.
+
+**Not in HAC list?** requires a photo, item name and observed brand. **Take photo** opens the supported phone's native rear camera; **Choose photo** is also available. If no brand is visible, record that explicitly with **Brand is not visible on the item**. Manufacturer, barcode, batch, quantity, expiry and notes can be recorded under other details. The photo and observation save atomically in one action. Unknown items remain inspection-only; duplicate manual identity names/brands are blocked despite whitespace/case or product/material category changes.
+
+## Why some trained versions cannot be published
+
+A model with 83.0% overall accuracy and 43.4% background false identification fails the maximum 20% background error limit. Top-three accuracy measures whether the correct product appears among suggestions on known-product photos; it does not measure rejection of unrelated objects. Retrying the same photos with the same training recipe repeats the result.
+
+The updated recipe retains up to 96 background prototypes versus 24 per product/variant, calibrates rejection against validation background errors, then evaluates the separate test set once. Publication requires at least 70% held-out accuracy, at most 20% background false identification, and at least 70% mean foreground recall. The UI shows blocking reasons and per-item recall; the publication API checks the measured gate itself. Existing models and metrics are not rewritten and the current published model remains active. Retraining under the new recipe creates one new evaluated result; unchanged later runs reuse it. If representative held-out images still fail, improve class labels and varied real background/product photographs before another training run. No passing result or physical-device accuracy is assumed.

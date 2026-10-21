@@ -1,3 +1,5 @@
+import { qualityFailures, type GateMetrics } from "@/lib/ai/quality-gate";
+import { withCatalogueImages } from "@/lib/catalogue-images";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -127,9 +129,13 @@ async function route(
         where: { id: { in: prediction.candidates.map((c) => c.productId) } },
         include: { brand: true, variants: true },
       });
+      const illustratedProducts = await withCatalogueImages(
+        "product",
+        products,
+      );
       const candidates = prediction.candidates.map((c) => ({
         ...c,
-        product: products.find((p) => p.id === c.productId),
+        product: illustratedProducts.find((p) => p.id === c.productId),
       }));
       const record = await db.recognitionPrediction.create({
         data: {
@@ -640,17 +646,21 @@ async function route(
         const model = await db.modelVersion.findUnique({
             where: { id: segments[1] },
           }),
-          metrics = model?.metrics as { passed?: boolean } | null;
+          metrics = model?.metrics as {
+            passed?: boolean;
+            test?: GateMetrics;
+          } | null;
         if (
           !model ||
           !model.artifact ||
           !metrics?.passed ||
+          qualityFailures(metrics.test).length > 0 ||
           !["VALIDATED", "SUPERSEDED", "PUBLISHED"].includes(model.status)
         )
           throw new ApiError(
             409,
             "MODEL_NOT_VALIDATED",
-            "Publish only an actual trained artifact that passed its held-out quality gate.",
+            `Publishing blocked. ${qualityFailures(metrics?.test).join(" ") || "Train and validate this model before publishing."}`,
           );
         const artifact = model.artifact as unknown as Artifact;
         const sourceCount = await db.trainingImage.count({

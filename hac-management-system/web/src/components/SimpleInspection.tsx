@@ -1,4 +1,6 @@
 "use client";
+import CataloguePicture from "./CataloguePicture";
+import UnlistedItemForm from "./UnlistedItemForm";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
@@ -48,9 +50,13 @@ export default function SimpleInspection({
   const resolver = useRef<(() => void) | null>(null),
     choosing = useRef(false),
     manualKey = useRef(crypto.randomUUID());
+  const inspected = useRef(new Set<string>());
   const load = useCallback(async () => {
     try {
       const data = await api(`/inspections/${id}/mobile`);
+      inspected.current = new Set(
+        data.observations.map((row: Row) => row.productId).filter(Boolean),
+      );
       setInspection(data);
       setError("");
       return data;
@@ -77,6 +83,10 @@ export default function SimpleInspection({
       predictionId?: string,
       product?: Row,
     ) => {
+      if (inspected.current.has(productId)) {
+        setNotice("This item is already inspected");
+        return;
+      }
       if (choosing.current) return;
       choosing.current = true;
       setError("");
@@ -151,6 +161,7 @@ export default function SimpleInspection({
         });
       }
       const row = result.observation ?? result;
+      if (selected.productId) inspected.current.add(selected.productId);
       setInspection(
         (current) =>
           current && {
@@ -179,7 +190,18 @@ export default function SimpleInspection({
       resolver.current = null;
       choosing.current = false;
     } catch (failure) {
-      setError((failure as Error).message);
+      if (
+        ["ALREADY_INSPECTED", "DUPLICATE_RECORD"].includes(
+          (failure as Row).code,
+        )
+      ) {
+        await load();
+        setNotice("This item is already inspected");
+        setChoice(null);
+        resolver.current?.();
+        resolver.current = null;
+        choosing.current = false;
+      } else setError((failure as Error).message);
     } finally {
       setSaving(false);
     }
@@ -307,6 +329,11 @@ export default function SimpleInspection({
         ← Inspections
       </Link>
       <div className="simple-heading">
+        <CataloguePicture
+          src={inspection.company.imageUrl}
+          name={inspection.company.legalName}
+          company
+        />
         <div>
           <span className="eyebrow">{inspection.reference}</span>
           <h1>
@@ -370,6 +397,9 @@ export default function SimpleInspection({
           </div>
           <section className="panel">
             <LiveProductSearch
+              inspectedProductIds={rows
+                .map((row) => row.productId)
+                .filter(Boolean)}
               select={(pid, vid, product) => {
                 void choose(pid, vid, undefined, product);
               }}
@@ -430,9 +460,10 @@ export default function SimpleInspection({
           <ul className="simple-item-list">
             {visible.map((row) => (
               <li key={row.id}>
-                <span className="simple-item-icon">
-                  <Package size={22} />
-                </span>
+                <CataloguePicture
+                  src={row.product?.imageUrl || row.evidence?.[0]?.url}
+                  name={row.product?.name || row.observedName}
+                />
                 <div>
                   <strong>{row.product?.name || row.observedName}</strong>
                   <small>
@@ -483,6 +514,9 @@ export default function SimpleInspection({
               onSelect={() => {}}
               onQuickSelect={choose}
               cameraOnly
+              inspectedProductIds={rows
+                .map((row) => row.productId)
+                .filter(Boolean)}
             />
             {confirm}
           </div>
@@ -496,53 +530,15 @@ export default function SimpleInspection({
             if (!saving) setManual(false);
           }}
         >
-          <form
-            className="form-stack"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (name.trim())
-                void add({ name: name.trim(), kind, key: manualKey.current });
+          <UnlistedItemForm
+            inspectionId={id}
+            onBusy={setSaving}
+            onSaved={async () => {
+              await load();
+              setManual(false);
+              setNotice("Unlisted item and photo saved");
             }}
-          >
-            <p>This item will be saved on this inspection only.</p>
-            <label>
-              Item name
-              <input
-                autoFocus
-                required
-                maxLength={300}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </label>
-            <div className="simple-filters">
-              <button
-                type="button"
-                aria-pressed={kind === "PRODUCT"}
-                onClick={() => setKind("PRODUCT")}
-              >
-                Product
-              </button>
-              <button
-                type="button"
-                aria-pressed={kind === "RAW_MATERIAL"}
-                onClick={() => setKind("RAW_MATERIAL")}
-              >
-                Raw material
-              </button>
-            </div>
-            {error && (
-              <div className="alert error" role="alert">
-                {error}
-              </div>
-            )}
-            <button
-              className="button primary"
-              disabled={saving || !name.trim()}
-            >
-              {saving ? "Adding…" : "Add to inspected list"}
-            </button>
-          </form>
+          />
         </WorkspaceDialog>
       )}
       {finishing && (
@@ -663,6 +659,7 @@ function QuickConfirm({
           Add to inspected{" "}
           {choice.kind === "RAW_MATERIAL" ? "materials" : "products"}?
         </h2>
+        <CataloguePicture src={choice.product?.imageUrl} name={choice.name} />
         <strong>{choice.name}</strong>
         <p>
           Confirm this is the item you see. HAC approval is checked

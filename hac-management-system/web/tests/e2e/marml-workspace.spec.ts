@@ -331,3 +331,5 @@ test("an administrator provisions, downloads private credentials, and edits reco
     ),
   ).toBe(true);
 });
+
+test.beforeEach(async ({page})=>{await page.addInitScript(()=>localStorage.setItem("hac-install-dismissed","1"));});

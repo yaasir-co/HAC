@@ -18,6 +18,7 @@ if (process.env.HAC_ISOLATED_TESTS !== "1")
     "Set HAC_ISOLATED_TESTS=1. This test creates and drops its own ephemeral database/user on the local Docker MySQL server.",
   );
 const app = join(root, "hac-management-system/web");
+const sharp = createRequire(join(app, "package.json"))("sharp");
 const suffix = randomBytes(6).toString("hex");
 const database = `hac_marml_${suffix}`,
   databaseUser = `hac_marml_${suffix}`;
@@ -379,45 +380,185 @@ try {
   const beforeCount = Number(
     sql(`SELECT COUNT(*) FROM \`${database}\`.Product;`).trim(),
   );
-  const unknownKey = randomUUID();
-  const unknown = await data(
+  const unknownKey = randomUUID(),
+    photo = await sharp({
+      create: { width: 96, height: 96, channels: 3, background: "green" },
+    })
+      .png()
+      .toBuffer();
+  async function multipart(
+    path,
+    actor,
+    fields,
+    bytes = photo,
+    status = 201,
+    method = "POST",
+  ) {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(fields))
+      form.set(key, String(value));
+    if (bytes)
+      form.set("file", new File([bytes], "photo.png", { type: "image/png" }));
+    const response = await fetch(`${base}/api/v1/${path}`, {
+      method,
+      headers: {
+        origin: base,
+        ...(sessions[actor] ? { cookie: sessions[actor] } : {}),
+      },
+      body: form,
+    });
+    const body = await response.json();
+    assert.equal(
+      response.status,
+      status,
+      `${path}: ${body.error?.code || response.status}`,
+    );
+    return body.data;
+  }
+  await call(
     `inspections/${inspection.id}/unknown`,
     "supervisor3",
-    {
-      name: "Unlisted inspection-only material",
-      kind: "RAW_MATERIAL",
-      clientMutationId: unknownKey,
-    },
+    { name: "No photo" },
+    422,
+  );
+  const fields = {
+    name: "Unlisted inspection-only material",
+    brandName: "Observed brand",
+    manufacturerName: "Observed manufacturer",
+    kind: "RAW_MATERIAL",
+    batch: "LOT-1",
+    quantity: "2",
+    clientMutationId: unknownKey,
+  };
+  await multipart(
+    `inspections/${inspection.id}/unknown`,
+    "supervisor3",
+    fields,
+    null,
+    422,
+  );
+  const unknown = await multipart(
+    `inspections/${inspection.id}/unknown`,
+    "supervisor3",
+    fields,
   );
   assert.equal(unknown.catalogueChanged, false);
   assert.equal(unknown.observation.productId, null);
-  const retry = await data(
+  assert.equal(unknown.observation.evidence.length, 1);
+  assert.equal(unknown.observation.quantity, 2);
+  assert.equal(unknown.observation.observedBrand, "Observed brand");
+  assert(!JSON.stringify(unknown).includes("storedName"));
+  const retry = await multipart(
+    `inspections/${inspection.id}/unknown`,
+    "supervisor3",
+    fields,
+    photo,
+    200,
+  );
+  assert.equal(retry.observation.id, unknown.observation.id);
+  await multipart(
+    `inspections/${inspection.id}/unknown`,
+    "supervisor3",
+    { ...fields, name: "Changed payload" },
+    photo,
+    409,
+  );
+  await multipart(
     `inspections/${inspection.id}/unknown`,
     "supervisor3",
     {
-      name: "Unlisted inspection-only material",
-      kind: "RAW_MATERIAL",
-      clientMutationId: unknownKey,
+      ...fields,
+      name: "  Unlisted   inspection-only material ",
+      clientMutationId: randomUUID(),
     },
-    200,
+    photo,
+    409,
   );
-  assert.equal(unknown.observation.id, retry.observation.id);
   assert.equal(
     Number(sql(`SELECT COUNT(*) FROM \`${database}\`.Product;`).trim()),
     beforeCount,
   );
-  await call(
-    `inspections/${inspection.id}/unknown`,
-    "supervisor3",
-    {
-      name: "Changed payload",
-      kind: "RAW_MATERIAL",
-      clientMutationId: unknownKey,
-    },
-    409,
+  const imageResponse = await fetch(
+    `${base}${unknown.observation.evidence[0].url}`,
+    { headers: { cookie: sessions.supervisor3 } },
   );
+  assert.equal(imageResponse.status, 200);
+  assert.equal(imageResponse.headers.get("content-type"), "image/png");
+  const mediaProduct = setup.materials[0].productId;
+  await multipart(
+    `catalogue-images/product/${mediaProduct}`,
+    undefined,
+    {},
+    photo,
+    401,
+  );
+  await multipart(
+    `catalogue-images/product/${mediaProduct}`,
+    "supervisor3",
+    {},
+    photo,
+    403,
+  );
+  await multipart(
+    `catalogue-images/product/${mediaProduct}`,
+    "admin",
+    {},
+    Buffer.from("<svg/>"),
+    415,
+  );
+  const productImage = await multipart(
+    `catalogue-images/product/${mediaProduct}`,
+    "admin",
+    {},
+  );
+  const companyImage = await multipart(
+    `catalogue-images/company/${sourceCompany.id}`,
+    "admin",
+    {},
+  );
+  const matches = await data(
+    `catalogue-search?id=${mediaProduct}`,
+    "supervisor3",
+  );
+  assert.equal(matches[0].imageUrl, productImage.imageUrl);
+  const leanProducts = await data("products?q=Chicken", "supervisor3");
+  assert(leanProducts.length > 0);
+  assert(
+    !leanProducts[0].rawMaterialListing ||
+      !("sourceRow" in leanProducts[0].rawMaterialListing),
+  );
+  assert(!("scopes" in leanProducts[0]));
+  const image = await fetch(`${base}${productImage.imageUrl}`, {
+    headers: { cookie: sessions.supervisor3 },
+  });
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get("cache-control"), "private, no-store");
+  assert.equal(image.headers.get("x-content-type-options"), "nosniff");
+  const ownCompany = await data(
+    `inspections/${inspection.id}/mobile`,
+    "supervisor3",
+  );
+  assert.equal(ownCompany.company.imageUrl, companyImage.imageUrl);
+  const otherCompanyLogo = await fetch(`${base}${companyImage.imageUrl}`, {
+    headers: { cookie: sessions.supervisor0 },
+  });
+  assert.equal(otherCompanyLogo.status, 403);
+  await call(
+    `catalogue-images/product/${mediaProduct}`,
+    "admin",
+    undefined,
+    200,
+    "DELETE",
+  );
+  await call(
+    `catalogue-images/product/${mediaProduct}`,
+    "supervisor3",
+    undefined,
+    404,
+  );
+  await multipart(`catalogue-images/product/${mediaProduct}`, "admin", {});
   console.log(
-    "PASS lightweight search, scoped mobile endpoint, and idempotent unlisted observation without any master catalogue writes.",
+    "PASS atomic unlisted photo + identity details, idempotent retry, duplicate prevention and no catalogue writes; admin-only product photos/company logos, authenticated views, scoped logos, image validation and removal.",
   );
   const first = setup.materials.find((material) => material.rowNumber === 1);
   const apple = setup.materials.find((material) => material.rowNumber === 29);
@@ -485,12 +626,65 @@ try {
       clientMutationId: randomUUID(),
     });
   }
+  await call(
+    `inspections/${inspection.id}/observations`,
+    "supervisor3",
+    {
+      productId: first.productId,
+      identityConfirmed: true,
+      conclusion: "OBSERVED",
+      clientMutationId: randomUUID(),
+    },
+    409,
+  );
+  const duplicateProduct = setup.materials.find(
+    (row) => row.rowNumber === 3,
+  ).productId;
+  const concurrent = await Promise.all([
+    request(
+      `inspections/${starts[0].data.data.id}/observations`,
+      "supervisor0",
+      {
+        productId: duplicateProduct,
+        identityConfirmed: true,
+        conclusion: "OBSERVED",
+        clientMutationId: randomUUID(),
+      },
+    ),
+    request(
+      `inspections/${starts[0].data.data.id}/observations`,
+      "supervisor0",
+      {
+        productId: duplicateProduct,
+        identityConfirmed: true,
+        conclusion: "OBSERVED",
+        clientMutationId: randomUUID(),
+      },
+    ),
+  ]);
+  assert.equal(
+    concurrent.filter((result) => result.response.status === 201).length,
+    1,
+  );
+  assert(concurrent.some((result) => result.response.status === 409));
+  const concurrentRows = await data(
+    `inspections/${starts[0].data.data.id}/mobile`,
+    "supervisor0",
+  );
+  assert.equal(
+    concurrentRows.observations.filter(
+      (row) => row.productId === duplicateProduct,
+    ).length,
+    1,
+  );
+  console.log(
+    "PASS repeated and concurrent product adds result in exactly one observation.",
+  );
   let detail = await data(`inspections/${inspection.id}`, "supervisor3");
   assert(
     detail.checklistVersion.questions.some((question) => question.required),
   );
   assert.equal(detail.responses.length, 0);
-  const sharp = createRequire(join(app, "package.json"))("sharp");
   const library = await data("ai/datasets", "admin", {
     name: "SYNTHETIC upload capacity and resumable training validation",
   });
@@ -558,6 +752,13 @@ try {
       `PASS real TensorFlow training batch: ${job.metrics.job.processed}/112 (${job.status}).`,
     );
   }
+  const sameRecipe = await data(
+    "ai/training-jobs",
+    "admin",
+    { action: "start", datasetId: library.id },
+    200,
+  );
+  assert.equal(sameRecipe.id, job.id);
   assert.equal(job.status, "VALIDATION_REQUIRED");
   assert.equal(job.metrics.job.processed, 112);
   assert.equal(job.metrics.job.phase, "DONE");
@@ -571,6 +772,57 @@ try {
   console.log(
     "PASS genuine 105-photo product upload + 7 background photos, saved counts/limited previews, actual resumable TensorFlow extraction and held-out evaluation; random-noise model cannot be published. Not an accuracy benchmark.",
   );
+  const positiveLibrary=await data("ai/datasets","admin",{name:"SYNTHETIC separable publication lifecycle ONLY"});
+  const labels=[first.productId,apple.productId,null];
+    for (let kind = 0; kind < 3; kind++)
+      for (let group = 0; group < 5; group++) {
+        const canvas = Buffer.alloc(224 * 224 * 3);
+        const cx = [112, 84, 143, 117, 91][group],
+          cy = [110, 131, 86, 72, 101][group],
+          size = [78, 62, 70, 57, 90][group];
+        for (let y = 0; y < 224; y++)
+          for (let x = 0; x < 224; x++) {
+            const i = (y * 224 + x) * 3;
+            const background = 205 + ((x * 13 + y * 7 + group * 31) % 37);
+            let rgb = [background, background, background];
+            if (
+              kind === 0 &&
+              Math.abs(x - cx) < size * 0.7 &&
+              Math.abs(y - cy) < size
+            ) {
+              const stripe = Math.floor((x + group * 7) / 10) % 2;
+              rgb = stripe ? [180, 25, 30] : [245, 105, 45];
+              if (Math.abs(y - cy) < 12) rgb = [250, 230, 160];
+            }
+            if (kind === 1 && Math.hypot(x - cx, y - cy) < size) {
+              const stripe = Math.floor(Math.hypot(x - cx, y - cy) / 8) % 2;
+              rgb = stripe ? [15, 95, 45] : [55, 195, 80];
+              if (Math.abs(x - cx) < 13) rgb = [230, 250, 220];
+            }
+            if (kind === 2) {
+              const wave =
+                Math.sin((x + group * 18) / 19) +
+                Math.cos((y - group * 10) / 22);
+              rgb = wave > 0 ? [25, 50, 160] : [95, 130, 245];
+            }
+            canvas[i] = rgb[0];
+            canvas[i + 1] = rgb[1];
+            canvas[i + 2] = rgb[2];
+          }
+        const bytes = await sharp(canvas, {
+          raw: { width: 224, height: 224, channels: 3 },
+        })
+          .png()
+          .toBuffer();
+        await multipart(`ai/datasets/${positiveLibrary.id}/images`,"admin",{productId:labels[kind]||"",captureGroup:`independent-${kind}-${group}`},bytes);
+      }
+  let positive=await data("ai/training-jobs","admin",{action:"start",datasetId:positiveLibrary.id},200);
+  for(let step=0;positive.status==="TRAINING"&&step<8;step++)positive=await data("ai/training-jobs","admin",{action:"step",modelId:positive.id},200);
+  assert.equal(positive.status,"VALIDATED",`Separable synthetic fixtures failed measured gate: ${JSON.stringify(positive.metrics.publicationBlockedReasons)}`);
+  await call(`ai/models/${positive.id}/publish`,"supervisor3",{},403);
+  await data(`ai/models/${positive.id}/publish`,"admin",{},200);
+  assert.equal((await data("ai/published","supervisor3")).id,positive.id);
+  console.log("PASS real TensorFlow training on 15 separable synthetic images passes measured gates and can be explicitly published by admin only in the disposable database. This is not field accuracy evidence.");
 
   detail = await data(`inspections/${inspection.id}`, "supervisor3");
   await data(
@@ -639,6 +891,8 @@ try {
   assert(pdfText.includes("INSPECTED RAW MATERIAL LIST"));
   assert(pdfText.includes(savedName));
   assert(pdfText.includes("Apple Flavour"));
+  assert(pdfText.includes("Unlisted inspection-only material"));
+  assert(pdfText.includes("Observed brand"));
   assert(pdfText.replace(/\s+/g, " ").includes("Saved before submission"));
   assert(
     report.response.headers.get("content-disposition").includes("attachment"),

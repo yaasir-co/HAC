@@ -1,3 +1,6 @@
+import { withCatalogueImages } from "@/lib/catalogue-images";
+import { observationIdentity } from "@/lib/observation-identity";
+import { recordUnlisted } from "@/lib/unlisted-observation";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
@@ -281,7 +284,7 @@ async function get(
         }),
         db.company.count({ where }),
       ]);
-      return paged(data, total);
+      return paged(await withCatalogueImages("company", data), total);
     }
     case "locations": {
       const where: Prisma.CompanyLocationWhereInput = {
@@ -360,7 +363,7 @@ async function get(
         });
         if (!product)
           throw new ApiError(404, "NOT_FOUND", "Product not found.");
-        return json(product);
+        return json((await withCatalogueImages("product", [product]))[0]);
       }
       const where: Prisma.ProductWhereInput = {
         ...scope,
@@ -385,14 +388,21 @@ async function get(
       const [data, total] = await Promise.all([
         db.product.findMany({
           where,
-          include: visibleProductInclude,
+          include: {
+            rawMaterialListing: { select: { certificateExpiry: true } },
+            brand: { select: { id: true, name: true } },
+            manufacturer: { select: { id: true, name: true } },
+            variants: {
+              select: { id: true, name: true, sku: true, barcode: true },
+            },
+          },
           skip,
           take: pageSize,
-          orderBy: { name: "asc" },
+          orderBy: [{ name: "asc" }, { id: "asc" }],
         }),
         db.product.count({ where }),
       ]);
-      return paged(data, total);
+      return paged(await withCatalogueImages("product", data), total);
     }
     case "certificates": {
       const scope: Prisma.CertificateWhereInput = companyId
@@ -995,12 +1005,29 @@ async function post(
         }
         return json(existing);
       }
+      if (!p.productId)
+        throw new ApiError(
+          422,
+          "PHOTO_REQUIRED",
+          "Use the unlisted item form to record a photo, name and brand.",
+        );
       assertDraft(record);
       if (p.version !== undefined && p.version !== record.version)
         throw new ApiError(
           409,
           "VERSION_CONFLICT",
           "The inspection changed since this observation was prepared. Reload and review it.",
+        );
+      if (
+        p.productId &&
+        (await db.observation.findFirst({
+          where: { inspectionId: recordId, productId: p.productId },
+        }))
+      )
+        throw new ApiError(
+          409,
+          "ALREADY_INSPECTED",
+          "This product or material is already on this inspection.",
         );
       if (p.variantId) {
         const v = await db.productVariant.findUnique({
@@ -1055,9 +1082,23 @@ async function post(
       } = p;
       const result = await db.$transaction(async (tx) => {
         await lockDraft(tx, record);
+        if (
+          p.productId &&
+          (await tx.observation.findFirst({
+            where: { inspectionId: recordId, productId: p.productId },
+          }))
+        )
+          throw new ApiError(
+            409,
+            "ALREADY_INSPECTED",
+            "This product or material is already on this inspection.",
+          );
         const observation = await tx.observation.create({
           data: {
             ...fields,
+            identityKey: p.productId
+              ? observationIdentity(p.productId)
+              : undefined,
             physicalExpiry: physicalExpiry
               ? new Date(
                   /^\d{4}-\d{2}-\d{2}$/.test(physicalExpiry)
@@ -1130,98 +1171,8 @@ async function post(
       return json(result, 201);
     }
     if (action === "unknown") {
-      const p = await body(
-        request,
-        z.object({
-          name: text,
-          kind: z.enum(["PRODUCT", "RAW_MATERIAL"]).default("PRODUCT"),
-          brandName: text.optional(),
-          manufacturerName: text.optional(),
-          barcode: text.optional(),
-          description: note.optional(),
-          reason: note.optional(),
-          clientMutationId: z.string().min(8).max(100).optional(),
-        }),
-      );
-      if (p.clientMutationId) {
-        const previous = await db.observation.findUnique({
-          where: { clientMutationId: p.clientMutationId },
-        });
-        if (previous) {
-          if (
-            previous.inspectionId !== recordId ||
-            previous.createdById !== user.id ||
-            previous.productId ||
-            previous.observedName !== p.name ||
-            previous.conclusion !== `UNLISTED_${p.kind}` ||
-            (previous.observedBrand ?? undefined) !== p.brandName ||
-            (previous.observedManufacturer ?? undefined) !==
-              p.manufacturerName ||
-            (previous.observedBarcode ?? undefined) !== p.barcode ||
-            (previous.notes ?? "") !==
-              [p.description, p.reason].filter(Boolean).join("\n")
-          )
-            throw new ApiError(
-              409,
-              "IDEMPOTENCY_CONFLICT",
-              "This request key was already used for different inspection content.",
-            );
-          return json({ observation: previous, catalogueChanged: false });
-        }
-      }
-      assertDraft(record);
-      const createdAt = new Date();
-      const verification = await verifyProduct({
-        companyId: record.companyId,
-        locationId: record.locationId,
-        identityConfirmed: true,
-        at: createdAt,
-      });
-      const observation = await db.$transaction(async (tx) => {
-        await lockDraft(tx, record);
-        const saved = await tx.observation.create({
-          data: {
-            inspectionId: recordId,
-            createdById: user.id,
-            clientMutationId: p.clientMutationId ?? reference("OBS"),
-            observedName: p.name,
-            observedBrand: p.brandName,
-            observedManufacturer: p.manufacturerName,
-            observedBarcode: p.barcode,
-            notes: [p.description, p.reason].filter(Boolean).join("\n"),
-            conclusion: `UNLISTED_${p.kind}`,
-            identityConfirmed: true,
-            verification: jsonValue(verification),
-            createdAt,
-          },
-        });
-        await tx.inspectionFinding.create({
-          data: {
-            inspectionId: recordId,
-            observationId: saved.id,
-            type: "UNLISTED_ITEM",
-            title: `Unlisted item: ${p.name}`,
-            description:
-              "Recorded manually on this inspection. No master catalogue entry or approval was created.",
-            severity: "OBSERVATION",
-          },
-        });
-        await tx.inspectionSignature.deleteMany({
-          where: { inspectionId: recordId },
-        });
-        await audit(
-          tx,
-          user,
-          "RECORD_UNLISTED_ITEM",
-          "Observation",
-          saved.id,
-          undefined,
-          { name: p.name, kind: p.kind, catalogueChanged: false },
-          record.companyId,
-        );
-        return saved;
-      });
-      return json({ observation, catalogueChanged: false }, 201);
+      const result = await recordUnlisted(request, user, record);
+      return json(result, result.repeated ? 200 : 201);
     }
     if (action === "checklist") {
       const p = await body(

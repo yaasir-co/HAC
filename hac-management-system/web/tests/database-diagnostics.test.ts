@@ -34,9 +34,9 @@ describe("private database diagnostics", () => {
         meta: { table: "private-table", driverAdapterError: { cause: { originalMessage: "private-password" } } },
       });
       const response = handleError(error);
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(503);
       const body = await response.json();
-      expect(body.error.code).toBe("INTERNAL_ERROR");
+      expect(body.error.code).toBe("DATABASE_SCHEMA_NOT_READY");
       expect(JSON.stringify(body)).not.toContain("private");
       expect(log).toHaveBeenCalledWith("[api] Request failed", {
         code: "P2021", name: "Error", database: "DATABASE_SCHEMA_NOT_READY",

@@ -1,6 +1,6 @@
 /* Static fallback only. Never cache authenticated HTML, APIs, evidence, or approval records. */
-const CACHE = 'hac-public-shell-v1';
-const PUBLIC_ASSETS = ['/offline.html', '/hac-icon.svg', '/manifest.webmanifest'];
+const CACHE = 'hac-public-shell-v2';
+const PUBLIC_ASSETS = ['/offline.html', '/branding/hac-app-192.png', '/branding/hac-app-512.png', '/branding/apple-touch-icon.png', '/branding/hac-wordmark.png', '/manifest.webmanifest'];
 self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(PUBLIC_ASSETS))); });
 self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('hac-public-shell-') && key !== CACHE).map(key => caches.delete(key))))); });
 self.addEventListener('fetch', event => {

@@ -97,3 +97,5 @@ test("camera permission failure remains actionable without invented predictions"
     page.getByRole("button", { name: /Rice/ }).first(),
   ).toBeVisible();
 });
+
+test.beforeEach(async ({page})=>{await page.addInitScript(()=>localStorage.setItem("hac-install-dismissed","1"));});

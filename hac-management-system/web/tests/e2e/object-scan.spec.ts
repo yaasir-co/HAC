@@ -50,3 +50,5 @@ test("real photo inference and live camera frames produce test suggestions and s
   expect(await page.evaluate(() => (window as any).testCameraTracks.every((track: MediaStreamTrack) => track.readyState === "ended"))).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test.beforeEach(async ({page})=>{await page.addInitScript(()=>localStorage.setItem("hac-install-dismissed","1"));});
