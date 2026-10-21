@@ -4,7 +4,7 @@ No production service has been deployed. A successful build or local demonstrati
 
 ## Local prerequisites and setup
 
-Use the existing isolated checkout at `/workspace/HAC`; no additional worktree is required. The web directory is `hac-management-system/web`. The environment provides Node.js 24 and Docker. This application uses MySQL 8.4, Prisma 7 and a persistent private filesystem. GPU hardware is not required for the initial CPU embedding workflow.
+Use the existing isolated checkout at `/workspace/HAC`; no additional worktree is required. The web directory is `hac-management-system/web`. This application requires Node.js 24.19 or newer within the Node 24 release line, npm, MySQL 8.4 and a persistent private filesystem. Local database setup uses Docker Compose. GPU hardware is not required for the initial CPU embedding workflow. For Windows prerequisites and exact PowerShell commands, use [Windows setup](docs/WINDOWS_SETUP.md).
 
 ```bash
 cd /workspace/HAC/hac-management-system/web
@@ -22,6 +22,34 @@ npm run dev
 The cloud proxy initially denied native Prisma downloads. The official pinned WASM client generator and a separately guarded local SQL runner allowed implementation and tests to proceed without disabling verification. Native artifact access later worked: standard `prisma migrate deploy` recognized the migration, and native schema comparison reported no drift against actual MySQL. The local fallback remains available as `db:migrate:local`, limited to localhost/hac_dev with advisory locking, checksums, unfinished-migration refusal and no destructive SQL. Production migration safety still requires reviewing and testing the actual target.
 
 Run `npm run build` then `npm start` to validate the production Node server locally. The build copies public/static assets into the standalone output; the start helper loads external environment configuration and resolves private storage paths before starting it. Private data and environment files are explicitly excluded from file tracing. `GET /api/v1/health` is authenticated and must successfully execute a database query. Keep the process running through the platform's supported service supervisor in a real deployment; do not rely on a development terminal session.
+
+## Repository-root builds and application directory
+
+A build error stating `package.json file not found` at the repository root occurs when the build service looks above the application directory. The root `package.json` now forwards commands to `hac-management-system/web`; the application source and its dependency lockfile remain there. From the repository root, use:
+
+```bash
+npm ci
+npm run build
+npm start
+```
+
+Use Node.js 24.19 or newer within Node 24 for both build and runtime. Root `npm ci` runs the web directory's locked installation with `--include=dev`, providing the Prisma generator, TypeScript and other build dependencies even when the service sets `NODE_ENV=production`. Root `npm run build` forwards to the web build, which generates the Prisma client before compiling Next.js and copying public/static assets into the standalone output. Root `npm test` and `npm run typecheck` forward the corresponding checks.
+
+Where a service supports an application/root directory, prefer this configuration so it detects Next.js in the directory that owns it:
+
+| Setting | Value |
+|---|---|
+| Application/root directory | `hac-management-system/web` |
+| Node.js version | `24.19+` within Node 24 |
+| Install command | `npm ci --include=dev` |
+| Build command | `npm run build` |
+| Start command | `npm start` |
+
+Services that only support the repository root can use the forwarding commands above if they support a generic Node.js application with a configurable start command. A root manifest without a Next.js dependency may be classified as generic Node.js; use the nested directory setting if the service requires framework detection. Static-only hosting remains unsuitable for this application.
+
+Both command entry points run with the web application as the working directory. Its standalone server remains at `hac-management-system/web/.next/standalone/server.js`; the build includes `.next/static` and `public` in that standalone directory. Use `npm start` so the existing startup helper loads configuration and resolves private storage paths. Relative `.env`, `.local/storage` and `uploads` paths continue to belong to the web directory.
+
+Installation and build do not run Docker setup, migrations, restoration, seeding or deployment. Starting the server requires a separately configured MySQL database with reviewed migrations already applied and the private runtime settings below. For local Windows testing, complete [Windows setup](docs/WINDOWS_SETUP.md) before starting the production build. No hosting configuration or public deployment is performed by these repository commands.
 
 ## Configuration
 
