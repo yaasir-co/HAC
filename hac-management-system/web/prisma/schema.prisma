@@ -1,0 +1,698 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id            String                        @id @default(cuid())
+  email         String                        @unique
+  name          String
+  passwordHash  String
+  role          String                        @default("SUPERVISOR")
+  companyId     String?
+  isActive      Boolean                       @default(true)
+  createdAt     DateTime                      @default(now())
+  updatedAt     DateTime                      @updatedAt
+  company       Company?                      @relation(fields: [companyId], references: [id])
+  sessions      Session[]
+  assignments   SupervisorCompanyAssignment[]
+  inspections   Inspection[]
+  observations  Observation[]
+  signatures    InspectionSignature[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@index([companyId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Company {
+  id                 String                        @id @default(cuid())
+  legalName          String
+  tradingName        String?
+  registrationNumber String                        @unique
+  category           String                        @default("RETAILER")
+  industry           String?
+  email              String?
+  phone              String?
+  status             String                        @default("ACTIVE")
+  isDemo             Boolean                       @default(false)
+  archivedAt         DateTime?
+  createdAt          DateTime                      @default(now())
+  updatedAt          DateTime                      @updatedAt
+  users              User[]
+  locations          CompanyLocation[]
+  assignments        SupervisorCompanyAssignment[]
+  items              CompanyItem[]
+  certificates       Certificate[]
+  licenses           License[]
+  inspections        Inspection[]
+  investigations     Investigation[]
+  complaints         Complaint[]
+  nonConformities    NonConformity[]
+  correctiveActions  CorrectiveAction[]
+
+  @@index([legalName])
+}
+
+model CompanyLocation {
+  id          String             @id @default(cuid())
+  companyId   String
+  name        String
+  type        String             @default("BRANCH")
+  address     String             @db.Text
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  company     Company            @relation(fields: [companyId], references: [id])
+  inspections Inspection[]
+  scopes      CertificateScope[]
+
+  @@unique([companyId, name])
+}
+
+model SupervisorCompanyAssignment {
+  id         String    @id @default(cuid())
+  userId     String
+  companyId  String
+  isActive   Boolean   @default(true)
+  assignedAt DateTime  @default(now())
+  revokedAt  DateTime?
+  user       User      @relation(fields: [userId], references: [id])
+  company    Company   @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+}
+
+model Brand {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model Manufacturer {
+  id                 String              @id @default(cuid())
+  name               String              @unique
+  country            String?
+  registrationNumber String?
+  createdAt          DateTime            @default(now())
+  products           Product[]
+  licenses           License[]
+  restrictions       RestrictionRecord[]
+}
+
+model Supplier {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  email     String?
+  createdAt DateTime  @default(now())
+  products  Product[]
+}
+
+model Product {
+  id             String              @id @default(cuid())
+  itemCode       String              @unique
+  name           String
+  normalizedName String
+  type           String              @default("PRODUCT")
+  category       String              @default("FOOD")
+  brandId        String
+  manufacturerId String
+  supplierId     String?
+  origin         String?
+  ingredients    String?             @db.Text
+  description    String?             @db.Text
+  status         String              @default("DRAFT")
+  isDemo         Boolean             @default(false)
+  version        Int                 @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  brand          Brand               @relation(fields: [brandId], references: [id])
+  manufacturer   Manufacturer        @relation(fields: [manufacturerId], references: [id])
+  supplier       Supplier?           @relation(fields: [supplierId], references: [id])
+  variants       ProductVariant[]
+  companies      CompanyItem[]
+  scopes         CertificateScope[]
+  restrictions   RestrictionRecord[]
+  observations   Observation[]
+  investigations Investigation[]
+  trainingImages TrainingImage[]
+
+  @@unique([normalizedName, brandId, manufacturerId])
+  @@index([status, name])
+}
+
+model ProductVariant {
+  id           String             @id @default(cuid())
+  productId    String
+  name         String
+  sku          String             @unique
+  barcode      String?            @unique
+  packageSize  String?
+  packaging    String?
+  flavour      String?
+  createdAt    DateTime           @default(now())
+  product      Product            @relation(fields: [productId], references: [id])
+  scopes       CertificateScope[]
+  observations Observation[]
+
+  @@index([productId])
+}
+
+model CompanyItem {
+  id           String    @id @default(cuid())
+  companyId    String
+  productId    String
+  relationship String    @default("RETAILER")
+  status       String    @default("ACTIVE")
+  effectiveAt  DateTime  @default(now())
+  expiresAt    DateTime?
+  company      Company   @relation(fields: [companyId], references: [id])
+  product      Product   @relation(fields: [productId], references: [id])
+
+  @@unique([companyId, productId])
+  @@index([productId])
+}
+
+model Certificate {
+  id           String               @id @default(cuid())
+  number       String               @unique
+  holderId     String
+  issuer       String
+  type         String               @default("HAC")
+  status       String               @default("PENDING")
+  issuedAt     DateTime
+  effectiveAt  DateTime
+  expiresAt    DateTime
+  supersedesId String?              @unique
+  documentPath String?
+  isDemo       Boolean              @default(false)
+  version      Int                  @default(1)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  holder       Company              @relation(fields: [holderId], references: [id])
+  supersedes   Certificate?         @relation("CertificateRenewals", fields: [supersedesId], references: [id])
+  replacement  Certificate?         @relation("CertificateRenewals")
+  scopes       CertificateScope[]
+  history      CertificateHistory[]
+
+  @@index([status, expiresAt])
+  @@index([holderId])
+}
+
+model CertificateScope {
+  id                          String           @id @default(cuid())
+  certificateId               String
+  productId                   String
+  variantId                   String?
+  facilityId                  String?
+  brandName                   String?
+  manufacturerName            String?
+  description                 String?          @db.Text
+  requiresCompanyRelationship Boolean          @default(false)
+  certificate                 Certificate      @relation(fields: [certificateId], references: [id])
+  product                     Product          @relation(fields: [productId], references: [id])
+  variant                     ProductVariant?  @relation(fields: [variantId], references: [id])
+  facility                    CompanyLocation? @relation(fields: [facilityId], references: [id])
+
+  @@index([productId, variantId])
+  @@index([certificateId])
+}
+
+model License {
+  id             String        @id @default(cuid())
+  companyId      String?
+  manufacturerId String?
+  name           String
+  number         String        @unique
+  authority      String
+  status         String        @default("ACTIVE")
+  effectiveAt    DateTime
+  expiresAt      DateTime
+  required       Boolean       @default(true)
+  company        Company?      @relation(fields: [companyId], references: [id])
+  manufacturer   Manufacturer? @relation(fields: [manufacturerId], references: [id])
+
+  @@index([expiresAt])
+}
+
+model RestrictionRecord {
+  id             String        @id @default(cuid())
+  productId      String?
+  manufacturerId String?
+  authority      String
+  reference      String        @unique
+  reason         String        @db.Text
+  scope          String        @db.Text
+  status         String        @default("ACTIVE")
+  effectiveAt    DateTime
+  expiresAt      DateTime?
+  createdById    String
+  createdAt      DateTime      @default(now())
+  product        Product?      @relation(fields: [productId], references: [id])
+  manufacturer   Manufacturer? @relation(fields: [manufacturerId], references: [id])
+
+  @@index([productId, status])
+  @@index([manufacturerId, status])
+}
+
+model ChecklistTemplate {
+  id          String                     @id @default(cuid())
+  name        String
+  description String?                    @db.Text
+  createdAt   DateTime                   @default(now())
+  versions    ChecklistTemplateVersion[]
+}
+
+model ChecklistTemplateVersion {
+  id          String              @id @default(cuid())
+  templateId  String
+  version     Int
+  status      String              @default("DRAFT")
+  publishedAt DateTime?
+  createdAt   DateTime            @default(now())
+  template    ChecklistTemplate   @relation(fields: [templateId], references: [id])
+  questions   ChecklistQuestion[]
+  inspections Inspection[]
+
+  @@unique([templateId, version])
+}
+
+model ChecklistQuestion {
+  id                 String                   @id @default(cuid())
+  versionId          String
+  section            String
+  text               String                   @db.Text
+  type               String                   @default("COMPLIANCE")
+  required           Boolean                  @default(true)
+  order              Int                      @default(0)
+  options            Json?
+  condition          Json?
+  requiresEvidenceOn Json?
+  version            ChecklistTemplateVersion @relation(fields: [versionId], references: [id])
+  responses          ChecklistResponse[]
+
+  @@index([versionId, order])
+}
+
+model Inspection {
+  id                 String                   @id @default(cuid())
+  reference          String                   @unique
+  companyId          String
+  locationId         String
+  inspectorId        String
+  type               String                   @default("ROUTINE")
+  status             String                   @default("SCHEDULED")
+  priority           String                   @default("NORMAL")
+  objectives         String?                  @db.Text
+  scheduledAt        DateTime
+  startedAt          DateTime?
+  submittedAt        DateTime?
+  reviewedAt         DateTime?
+  reviewedById       String?
+  reviewReason       String?                  @db.Text
+  checklistVersionId String
+  masterDataVersion  String?
+  version            Int                      @default(1)
+  snapshot           Json?
+  snapshotHash       String?
+  isDemo             Boolean                  @default(false)
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  company            Company                  @relation(fields: [companyId], references: [id])
+  location           CompanyLocation          @relation(fields: [locationId], references: [id])
+  inspector          User                     @relation(fields: [inspectorId], references: [id])
+  checklistVersion   ChecklistTemplateVersion @relation(fields: [checklistVersionId], references: [id])
+  observations       Observation[]
+  responses          ChecklistResponse[]
+  findings           InspectionFinding[]
+  evidence           InspectionEvidence[]
+  signatures         InspectionSignature[]
+  reports            InspectionReport[]
+  investigations     Investigation[]
+  complaints         Complaint[]
+  nonConformities    NonConformity[]
+
+  @@index([companyId, status, scheduledAt])
+  @@index([inspectorId, scheduledAt])
+}
+
+model Observation {
+  id                      String                 @id @default(cuid())
+  inspectionId            String
+  productId               String?
+  variantId               String?
+  observedName            String?
+  observedBrand           String?
+  observedManufacturer    String?
+  observedBarcode         String?
+  observedVariant         String?
+  physicalExpiry          DateTime?
+  manufactureDate         DateTime?
+  batch                   String?
+  quantity                Float?
+  storageLocation         String?
+  notes                   String?                @db.Text
+  verification            Json
+  conclusion              String
+  identityConfirmed       Boolean                @default(false)
+  recognitionPredictionId String?                @unique
+  recognitionPrediction   RecognitionPrediction? @relation(fields: [recognitionPredictionId], references: [id])
+  clientMutationId        String                 @unique
+  createdById             String
+  createdAt               DateTime               @default(now())
+  inspection              Inspection             @relation(fields: [inspectionId], references: [id])
+  product                 Product?               @relation(fields: [productId], references: [id])
+  variant                 ProductVariant?        @relation(fields: [variantId], references: [id])
+  createdBy               User                   @relation(fields: [createdById], references: [id])
+  findings                InspectionFinding[]
+  evidence                InspectionEvidence[]
+  investigations          Investigation[]
+
+  @@index([inspectionId, createdAt])
+}
+
+model ChecklistResponse {
+  id           String            @id @default(cuid())
+  inspectionId String
+  questionId   String
+  answer       Json
+  notes        String?           @db.Text
+  updatedAt    DateTime          @updatedAt
+  inspection   Inspection        @relation(fields: [inspectionId], references: [id])
+  question     ChecklistQuestion @relation(fields: [questionId], references: [id])
+
+  @@unique([inspectionId, questionId])
+}
+
+model InspectionFinding {
+  id            String       @id @default(cuid())
+  inspectionId  String
+  observationId String?
+  type          String
+  severity      String       @default("OBSERVATION")
+  title         String
+  description   String       @db.Text
+  status        String       @default("OPEN")
+  createdAt     DateTime     @default(now())
+  inspection    Inspection   @relation(fields: [inspectionId], references: [id])
+  observation   Observation? @relation(fields: [observationId], references: [id])
+
+  @@index([inspectionId, severity])
+}
+
+model InspectionEvidence {
+  id            String       @id @default(cuid())
+  inspectionId  String
+  observationId String?
+  uploadedById  String
+  originalName  String
+  storedName    String       @unique
+  mimeType      String
+  byteSize      Int
+  sha256        String
+  description   String?      @db.Text
+  capturedAt    DateTime?
+  createdAt     DateTime     @default(now())
+  inspection    Inspection   @relation(fields: [inspectionId], references: [id])
+  observation   Observation? @relation(fields: [observationId], references: [id])
+
+  @@index([inspectionId])
+}
+
+model InspectionSignature {
+  id           String     @id @default(cuid())
+  inspectionId String
+  userId       String
+  name         String
+  role         String
+  signature    String?    @db.LongText
+  reason       String?    @db.Text
+  signedAt     DateTime   @default(now())
+  inspection   Inspection @relation(fields: [inspectionId], references: [id])
+  user         User       @relation(fields: [userId], references: [id])
+
+  @@unique([inspectionId, role])
+}
+
+model InspectionReport {
+  id            String     @id @default(cuid())
+  inspectionId  String
+  reference     String     @unique
+  revision      Int        @default(1)
+  format        String     @default("PDF")
+  sha256        String
+  storedName    String
+  generatedById String
+  snapshotHash  String
+  createdAt     DateTime   @default(now())
+  inspection    Inspection @relation(fields: [inspectionId], references: [id])
+
+  @@unique([inspectionId, revision, format])
+}
+
+model Investigation {
+  id            String               @id @default(cuid())
+  reference     String               @unique
+  companyId     String
+  inspectionId  String?
+  productId     String?
+  observationId String?
+  title         String
+  description   String               @db.Text
+  priority      String               @default("NORMAL")
+  status        String               @default("AWAITING_TRIAGE")
+  assignedToId  String?
+  createdById   String
+  dueAt         DateTime?
+  resolvedAt    DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  company       Company              @relation(fields: [companyId], references: [id])
+  inspection    Inspection?          @relation(fields: [inspectionId], references: [id])
+  product       Product?             @relation(fields: [productId], references: [id])
+  observation   Observation?         @relation(fields: [observationId], references: [id])
+  events        InvestigationEvent[]
+
+  @@index([companyId, status])
+  @@index([inspectionId])
+}
+
+model InvestigationEvent {
+  id              String        @id @default(cuid())
+  investigationId String
+  userId          String
+  type            String
+  message         String        @db.Text
+  visibility      String        @default("INTERNAL")
+  createdAt       DateTime      @default(now())
+  investigation   Investigation @relation(fields: [investigationId], references: [id])
+
+  @@index([investigationId, createdAt])
+}
+
+model Complaint {
+  id              String      @id @default(cuid())
+  reference       String      @unique
+  companyId       String
+  inspectionId    String?
+  productId       String?
+  title           String
+  description     String      @db.Text
+  status          String      @default("SUBMITTED")
+  priority        String      @default("NORMAL")
+  assignedToId    String?
+  createdById     String
+  investigationId String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  company         Company     @relation(fields: [companyId], references: [id])
+  inspection      Inspection? @relation(fields: [inspectionId], references: [id])
+
+  @@index([companyId, status])
+}
+
+model NonConformity {
+  id                String             @id @default(cuid())
+  reference         String             @unique
+  companyId         String
+  inspectionId      String?
+  productId         String?
+  observationId     String?
+  title             String
+  description       String             @db.Text
+  severity          String             @default("MINOR")
+  status            String             @default("OPEN")
+  responsibleParty  String?
+  dueAt             DateTime?
+  createdById       String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  company           Company            @relation(fields: [companyId], references: [id])
+  inspection        Inspection?        @relation(fields: [inspectionId], references: [id])
+  correctiveActions CorrectiveAction[]
+
+  @@index([companyId, status, dueAt])
+}
+
+model CorrectiveAction {
+  id                  String        @id @default(cuid())
+  reference           String        @unique
+  companyId           String
+  nonConformityId     String
+  title               String
+  rootCause           String        @db.Text
+  proposedAction      String        @db.Text
+  evidenceDescription String?       @db.Text
+  status              String        @default("SUBMITTED")
+  createdById         String
+  reviewedById        String?
+  reviewNotes         String?       @db.Text
+  reviewedAt          DateTime?
+  dueAt               DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  company             Company       @relation(fields: [companyId], references: [id])
+  nonConformity       NonConformity @relation(fields: [nonConformityId], references: [id])
+
+  @@index([companyId, status])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  message   String    @db.Text
+  href      String?
+  dedupeKey String?   @unique
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  companyId  String?
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  reason     String?  @db.Text
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+}
+
+model TrainingDataset {
+  id          String          @id @default(cuid())
+  name        String
+  description String?         @db.Text
+  version     Int             @default(1)
+  status      String          @default("COLLECTING_DATA")
+  createdById String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  images      TrainingImage[]
+  models      ModelVersion[]
+}
+
+model TrainingImage {
+  id             String          @id @default(cuid())
+  datasetId      String
+  productId      String?
+  label          String
+  split          String          @default("TRAIN")
+  captureGroup   String
+  variantId      String?
+  width          Int
+  height         Int
+  path           String          @unique
+  mimeType       String
+  sha256         String
+  perceptualHash String?
+  quality        Json?
+  embedding      Json?
+  createdAt      DateTime        @default(now())
+  dataset        TrainingDataset @relation(fields: [datasetId], references: [id])
+  product        Product?        @relation(fields: [productId], references: [id])
+
+  @@unique([datasetId, sha256])
+  @@index([datasetId, split])
+}
+
+model ModelVersion {
+  id            String                  @id @default(cuid())
+  datasetId     String
+  version       Int
+  status        String                  @default("DRAFT")
+  extractor     String                  @default("MOBILENET_V2")
+  artifact      Json?
+  metrics       Json?
+  threshold     Float                   @default(0.85)
+  margin        Float                   @default(0.08)
+  createdById   String
+  publishedById String?
+  publishedAt   DateTime?
+  createdAt     DateTime                @default(now())
+  dataset       TrainingDataset         @relation(fields: [datasetId], references: [id])
+  predictions   RecognitionPrediction[]
+
+  @@unique([datasetId, version])
+  @@index([status])
+}
+
+model RecognitionPrediction {
+  id                String       @id @default(cuid())
+  modelVersionId    String
+  userId            String
+  inspectionId      String?
+  candidates        Json
+  acceptedProductId String?
+  uncertain         Boolean      @default(true)
+  latencyMs         Int?
+  createdAt         DateTime     @default(now())
+  modelVersion      ModelVersion @relation(fields: [modelVersionId], references: [id])
+  observation       Observation?
+
+  @@index([modelVersionId, createdAt])
+}
+
+model LoginRateLimit {
+  keyHash   String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+}
+
+model CertificateHistory {
+  id            String      @id @default(cuid())
+  certificateId String
+  status        String
+  effectiveAt   DateTime
+  reason        String      @db.Text
+  createdById   String
+  createdAt     DateTime    @default(now())
+  certificate   Certificate @relation(fields: [certificateId], references: [id])
+
+  @@index([certificateId, effectiveAt])
+}
