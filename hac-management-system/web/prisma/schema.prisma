@@ -364,7 +364,7 @@ model Inspection {
   reviewedAt         DateTime?
   reviewedById       String?
   reviewReason       String?                  @db.Text
-  checklistVersionId String
+  checklistVersionId String?
   masterDataVersion  String?
   version            Int                      @default(1)
   snapshot           Json?
@@ -375,7 +375,7 @@ model Inspection {
   company            Company                  @relation(fields: [companyId], references: [id])
   location           CompanyLocation          @relation(fields: [locationId], references: [id])
   inspector          User                     @relation(fields: [inspectorId], references: [id])
-  checklistVersion   ChecklistTemplateVersion @relation(fields: [checklistVersionId], references: [id])
+  checklistVersion   ChecklistTemplateVersion? @relation(fields: [checklistVersionId], references: [id], onDelete: Restrict)
   observations       Observation[]
   responses          ChecklistResponse[]
   findings           InspectionFinding[]

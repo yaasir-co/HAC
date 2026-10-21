@@ -1194,7 +1194,7 @@ async function post(
         request,
         z.object({ questionId: id, answer: z.json(), notes: note.optional() }),
       );
-      const question = record.checklistVersion.questions.find(
+      const question = record.checklistVersion?.questions.find(
         (q) => q.id === p.questionId,
       );
       if (!question || !answerValid(question.type, p.answer, question.options))
@@ -1873,7 +1873,7 @@ async function post(
           locationId: id,
           inspectorId: id,
           scheduledAt: date,
-          checklistVersionId: id,
+          checklistVersionId: id.nullable().optional(),
           type: z
             .enum([
               "INITIAL",
@@ -1900,9 +1900,9 @@ async function post(
       const [location, inspector, checklist, assignment] = await Promise.all([
         db.companyLocation.findUnique({ where: { id: p.locationId } }),
         db.user.findUnique({ where: { id: p.inspectorId } }),
-        db.checklistTemplateVersion.findUnique({
+        p.checklistVersionId ? db.checklistTemplateVersion.findUnique({
           where: { id: p.checklistVersionId },
-        }),
+        }) : Promise.resolve(null),
         db.supervisorCompanyAssignment.findFirst({
           where: {
             userId: p.inspectorId,
@@ -1918,8 +1918,7 @@ async function post(
         !location.isActive ||
         !inspector?.isActive ||
         !INSPECTORS.includes(inspector.role) ||
-        !checklist ||
-        checklist.status !== "PUBLISHED" ||
+        (p.checklistVersionId && (!checklist || checklist.status !== "PUBLISHED")) ||
         (!ADMIN.includes(inspector.role) && !assignment)
       )
         throw new ApiError(

@@ -62,7 +62,7 @@ function StartInspectionModal({
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    Promise.all([api("/companies?pageSize=100"), api("/checklists")])
+    Promise.all([api("/companies?pageSize=100"), api("/checklists").catch(() => [])])
       .then(([companyResponse, checklistResponse]) => {
         if (!active) return;
         const available = array(companyResponse).filter(
@@ -78,7 +78,7 @@ function StartInspectionModal({
             ? current
             : (available[0]?.id ?? ""),
         );
-        setChecklistVersionId(published[0]?.id ?? "");
+        setChecklistVersionId("");
       })
       .catch((failure) => {
         if (active) setError(failure.message);
@@ -112,7 +112,7 @@ function StartInspectionModal({
         body: JSON.stringify({
           companyId,
           locationId,
-          checklistVersionId,
+          ...(checklistVersionId ? { checklistVersionId } : {}),
           type: "ROUTINE",
           ...(objectives.trim() ? { objectives: objectives.trim() } : {}),
         }),
@@ -191,14 +191,13 @@ function StartInspectionModal({
               )}
             </label>
             <label>
-              Checklist *
+              Checklist (optional)
               <select
-                required
                 value={checklistVersionId}
                 onChange={(event) => setChecklistVersionId(event.target.value)}
                 disabled={busy || !checklists.length}
               >
-                <option value="">Select a published checklist</option>
+                <option value="">No checklist — products only</option>
                 {checklists.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.template?.name || item.name || "Inspection checklist"}{" "}
@@ -208,8 +207,7 @@ function StartInspectionModal({
               </select>
               {!checklists.length && (
                 <small>
-                  An administrator must publish a checklist before an inspection
-                  can start.
+                  You can start and submit this visit without a checklist.
                 </small>
               )}
             </label>
@@ -247,8 +245,7 @@ function StartInspectionModal({
               loading ||
               busy ||
               !companyId ||
-              !locationId ||
-              !checklistVersionId
+              !locationId
             }
           >
             {busy ? (

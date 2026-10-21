@@ -22,9 +22,9 @@ Each new supervisor gets a different random password. Download the private crede
 
 ## Inspect and download
 
-Supervisors use **Start inspection** from the overview, company list or inspections screen. Choose an active assigned company, its location and a published checklist. No scheduled inspection or separate inspection assignment is required. The server records the supervisor and start time; starting the same company/location resumes that supervisor's visit in progress. Another assigned company can be inspected independently.
+Supervisors use **Start inspection** from the overview, company list or inspections screen. Choose an active assigned company and its location; a published checklist can be selected optionally. No scheduled inspection or separate inspection assignment is required. The server records the supervisor and start time; starting the same company/location resumes that supervisor's visit in progress. Another assigned company can be inspected independently.
 
-Record material identities, observed labels/batches, physical expiry, quantities, storage, conclusions and notes. Add evidence, complete the checklist and record declarations/signatures before submitting. Submitted inspections retain the material details and verification results that were saved with them.
+Record material identities, observed labels/batches, physical expiry, quantities, storage, conclusions and notes. Add evidence, optional checklist answers and declarations/signatures before submitting. Unanswered checklist questions do not block submission. Submitted inspections retain the material details and verification results that were saved with them. See [Mobile inspections](MOBILE_INSPECTIONS.md) for live search, larger text and scanner testing.
 
 The PDF starts with an A4 landscape MARML-style register: HAC block, company/location metadata, grouped supplier/certificate headings, material columns, wrapped rows, repeated headers and page numbers. Saved findings, explanations, checklist responses, evidence and signatures follow. Drafts are identified. The report records an inspection; it does not issue or renew certification. Existing retained PDF artifacts are preserved; new artifacts use the new layout.
 

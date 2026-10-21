@@ -169,30 +169,13 @@ export async function submitInspection(
   const answers = new Map(
     record.responses.map((r) => [r.questionId, r.answer]),
   );
-  for (const question of record.checklistVersion.questions) {
+  for (const question of record.checklistVersion?.questions ?? []) {
     if (!isQuestionVisible(question.condition, answers)) continue;
     const response = record.responses.find((r) => r.questionId === question.id);
-    if (
-      question.required &&
-      (!response ||
-        !answerValid(question.type, response.answer, question.options))
-    )
-      throw new ApiError(
-        422,
-        "CHECKLIST_INCOMPLETE",
-        `Answer the required question: ${question.text}`,
-      );
-    if (
-      response &&
-      Array.isArray(question.requiresEvidenceOn) &&
-      question.requiresEvidenceOn.includes(response.answer) &&
-      (!record.evidence.length || !response.notes?.trim())
-    )
-      throw new ApiError(
-        422,
-        "CHECKLIST_EVIDENCE_REQUIRED",
-        `Provide evidence and notes for: ${question.text}`,
-      );
+    // Checklist answers are optional. Validate content that was supplied, rather than
+    // requiring an answer merely because an older template marked it required.
+    if (response && !answerValid(question.type, response.answer, question.options))
+      throw new ApiError(422, "INVALID_ANSWER", `Review the saved answer: ${question.text}`);
   }
   const inspectorSignature = record.signatures.find(
     (s) => s.role === "INSPECTOR" && s.userId === record.inspectorId,
