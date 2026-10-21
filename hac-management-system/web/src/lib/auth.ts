@@ -95,7 +95,28 @@ export function readSessionToken(request: Request): string | null {
 export function assertSameOrigin(request: Request): void {
   if (["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) return;
   const origin = request.headers.get("origin");
-  const expected = new URL(process.env.APP_ORIGIN || request.url).origin;
+  let expected: string;
+  try {
+    const configured = new URL(process.env.APP_ORIGIN || request.url);
+    if (
+      !["http:", "https:"].includes(configured.protocol) ||
+      configured.username ||
+      configured.password
+    ) {
+      throw new Error("Invalid application origin");
+    }
+    expected = configured.origin;
+  } catch {
+    // Do not log the value: a misconfigured field might contain a credential.
+    console.error(
+      "[auth] Invalid APP_ORIGIN. Set the full http(s) website address in the server environment.",
+    );
+    throw new ApiError(
+      503,
+      "AUTH_CONFIGURATION_ERROR",
+      "Sign-in is temporarily unavailable. Please contact the site administrator.",
+    );
+  }
   // Cookie-authenticated API clients, including Flutter, must send the configured Origin.
   if (!origin || origin === "null" || origin !== expected)
     throw new ApiError(

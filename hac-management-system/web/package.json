@@ -10,6 +10,8 @@
     "test": "vitest run",
     "db:generate": "node scripts/generate-client.mjs",
     "db:migrate": "prisma migrate deploy",
+    "db:check": "npm run db:generate && tsx scripts/check-database.ts",
+    "admin:create": "npm run db:generate && tsx scripts/create-initial-admin.ts",
     "db:seed": "tsx prisma/seed.ts",
     "setup:local": "node scripts/setup-local.mjs",
     "db:migrate:local": "node scripts/migrate-local.mjs",

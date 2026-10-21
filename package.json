@@ -11,6 +11,9 @@
     "build": "npm --prefix hac-management-system/web run build",
     "start": "npm --prefix hac-management-system/web start",
     "test": "npm --prefix hac-management-system/web test",
-    "typecheck": "npm --prefix hac-management-system/web run typecheck"
+    "typecheck": "npm --prefix hac-management-system/web run typecheck",
+    "db:check": "npm --prefix hac-management-system/web run db:check",
+    "db:migrate": "npm --prefix hac-management-system/web run db:migrate",
+    "admin:create": "npm --prefix hac-management-system/web run admin:create"
   }
 }

@@ -1,4 +1,5 @@
 import { ZodError } from "zod";
+import { databaseDiagnostic } from "./database-diagnostics";
 
 export class ApiError extends Error {
   constructor(
@@ -82,6 +83,7 @@ export function handleError(error: unknown): Response {
   console.error("[api] Request failed", {
     code: typeof code === "string" ? code : "UNEXPECTED_ERROR",
     name: error instanceof Error ? error.name : "UnknownError",
+    database: databaseDiagnostic(error)?.code,
   });
   return Response.json(
     {
