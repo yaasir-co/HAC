@@ -1,8 +1,11 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { createHash } from "node:crypto";
 import {
   PDFDocument,
   PDFFont,
   PDFPage,
+  PDFImage,
   StandardFonts,
   rgb,
   degrees,
@@ -89,7 +92,10 @@ export function summarizeInspection(value: unknown) {
     ).length,
     brandMismatches: count("BRAND_MISMATCH"),
     variantMismatches: count("PRODUCT_VARIANT_MISMATCH", "VARIANT_MISMATCH"),
-    expiredCertificates: count("CERTIFICATE_EXPIRED", "MARML_CERTIFICATE_EXPIRED"),
+    expiredCertificates: count(
+      "CERTIFICATE_EXPIRED",
+      "MARML_CERTIFICATE_EXPIRED",
+    ),
     expiredProducts: count("PHYSICAL_PRODUCT_EXPIRED"),
     restricted: count(
       "EXPLICITLY_RESTRICTED",
@@ -106,6 +112,7 @@ export function summarizeInspection(value: unknown) {
 
 class PageLayout {
   page!: PDFPage;
+  logo?: PDFImage;
   y = 0;
   section = "";
   readonly margin = 40;
@@ -130,13 +137,21 @@ class PageLayout {
       height: 12,
       color: colors.green,
     });
-    this.page.drawText("HAC", {
-      x: this.margin,
-      y: h - 49,
-      size: 22,
-      font: this.bold,
-      color: colors.navy,
-    });
+    if (this.logo)
+      this.page.drawImage(this.logo, {
+        x: this.margin,
+        y: h - 58,
+        width: 55,
+        height: 40,
+      });
+    else
+      this.page.drawText("HAC", {
+        x: this.margin,
+        y: h - 49,
+        size: 22,
+        font: this.bold,
+        color: colors.navy,
+      });
     this.page.drawText("CERTIFICATION & INSPECTION", {
       x: this.margin + 65,
       y: h - 43,
@@ -401,7 +416,13 @@ export async function renderInspectionPdf(
     bold = await document.embedFont(StandardFonts.HelveticaBold);
   const isDraft = !data.submittedAt,
     layout = new PageLayout(document, normal, bold, meta, isDraft);
-  appendMarmlInspectionRegister(document, normal, bold, data, meta);
+  const logo = await document.embedPng(
+    await readFile(
+      path.join(process.cwd(), "public", "branding", "hac-wordmark.png"),
+    ),
+  );
+  layout.logo = logo;
+  appendMarmlInspectionRegister(document, normal, bold, data, meta, logo);
   layout.newPage("Inspection details");
   layout.paragraph(company.legalName || company.tradingName, {
     size: 22,

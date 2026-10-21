@@ -1,3 +1,5 @@
+import { qualityFailures } from "./quality-gate";
+import { calibrateRejection, TRAINING_RECIPE } from "./calibration";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Prisma } from "@prisma/client";
@@ -64,6 +66,26 @@ export async function startTrainingJob(user: AuthUser, raw: unknown) {
         select,
       });
       if (running && state(running.metrics)) return running;
+      const last = dataset.models[0],
+        prior = last?.metrics as {
+          trainingRecipe?: string;
+          datasetVersion?: number;
+        } | null;
+      if (
+        last &&
+        [
+          "VALIDATED",
+          "VALIDATION_REQUIRED",
+          "PUBLISHED",
+          "SUPERSEDED",
+        ].includes(last.status) &&
+        prior?.trainingRecipe === TRAINING_RECIPE &&
+        prior.datasetVersion === dataset.version
+      )
+        return tx.modelVersion.findUniqueOrThrow({
+          where: { id: last.id },
+          select,
+        });
       if (dataset.images.length > 10000)
         throw new ApiError(
           422,
@@ -222,31 +244,19 @@ export async function stepTrainingJob(user: AuthUser, id: string) {
         model.threshold,
         model.margin,
       );
-    // Validation tunes thresholds. Test photos never choose the parameters.
-    let validation = evaluate(split.validation, artifact),
-      best = -Infinity;
-    for (const threshold of [0.72, 0.78, 0.82, 0.88, 0.92])
-      for (const margin of [0.03, 0.06, 0.1]) {
-        const candidate = { ...artifact, threshold, margin },
-          metrics = evaluate(split.validation, candidate);
-        const score =
-          metrics.accuracy - (metrics.falseIdentificationRate ?? 1) * 0.5;
-        if (score > best) {
-          best = score;
-          artifact.threshold = threshold;
-          artifact.margin = margin;
-          validation = metrics;
-        }
-      }
+    // Only held-out validation photos choose thresholds; test data is evaluated once afterward.
+    const calibration = calibrateRejection(split.validation, artifact);
+    artifact.threshold = calibration.threshold;
+    artifact.margin = calibration.margin;
+    const validation = evaluate(split.validation, artifact);
     const test = evaluate(split.test, artifact),
-      passed =
-        test.accuracy >= 0.7 &&
-        test.falseIdentificationRate !== null &&
-        test.falseIdentificationRate <= 0.2;
+      passed = qualityFailures(test).length === 0;
     artifact.sampleIds = samples.map((row) => row.id);
     const metrics = {
       job: { ...job, phase: "DONE", processed: job.total, leaseUntil: 0 },
       datasetVersion: dataset.version,
+      trainingRecipe: TRAINING_RECIPE,
+      calibration,
       passed,
       validation,
       test,
@@ -262,9 +272,11 @@ export async function stepTrainingJob(user: AuthUser, id: string) {
       },
       qualityGate: {
         minTestAccuracy: 0.7,
+        minForegroundRecall: 0.7,
         maxUnknownFalseIdentificationRate: 0.2,
       },
       prototypeCount: artifact.vectors.length,
+      publicationBlockedReasons: qualityFailures(test),
       note: "Training-only diverse prototypes. Image count is not a guarantee of field accuracy. Review held-out results before publishing.",
     };
     await db.$transaction(

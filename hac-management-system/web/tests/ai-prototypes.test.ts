@@ -17,7 +17,14 @@ describe("bounded training-only product prototypes", () => {
   it("caps each class without mixing labels or losing training provenance", () => {
     const split = partition(samples),
       artifact = createPrototypeArtifact(split.train);
-    expect(artifact.vectors.length).toBeLessThanOrEqual(72);
+    expect(artifact.vectors.length).toBeLessThanOrEqual(144);
+    for (const id of ["a", "b"])
+      expect(
+        artifact.vectors.filter((row) => row.productId === id).length,
+      ).toBeLessThanOrEqual(24);
+    expect(
+      artifact.vectors.filter((row) => row.productId === null).length,
+    ).toBeLessThanOrEqual(96);
     expect(artifact.sampleIds).toEqual(split.train.map((row) => row.id));
     expect(
       artifact.sampleIds.some((id) => split.test.some((row) => row.id === id)),

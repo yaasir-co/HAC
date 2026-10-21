@@ -353,6 +353,43 @@ export default function ProductTrainingLibrary() {
                       {job.error && <p>{job.error}</p>}
                     </>
                   )}
+                  {model.status === "VALIDATION_REQUIRED" && metrics?.test && (
+                    <div role="status" className={styles.error}>
+                      <strong>
+                        Publishing blocked by measured test results
+                      </strong>
+                      <ul>
+                        {metrics.publicationBlockedReasons?.map(
+                          (reason: string) => (
+                            <li key={reason}>{reason}</li>
+                          ),
+                        )}
+                        {metrics.test.accuracy < 0.7 && (
+                          <li>
+                            Accuracy is{" "}
+                            {(metrics.test.accuracy * 100).toFixed(1)}%; at
+                            least 70% is required.
+                          </li>
+                        )}
+                        {(metrics.test.falseIdentificationRate == null ||
+                          metrics.test.falseIdentificationRate > 0.2) && (
+                          <li>
+                            Background false identification is{" "}
+                            {metrics.test.falseIdentificationRate == null
+                              ? "unmeasured"
+                              : `${(metrics.test.falseIdentificationRate * 100).toFixed(1)}%`}
+                            ; the limit is 20%.
+                          </li>
+                        )}
+                      </ul>
+                      <p>
+                        Add varied unrelated/background images, review incorrect
+                        labels and similar-looking products, then train again.
+                        Repeating an unchanged library with the same training
+                        recipe reuses its result.
+                      </p>
+                    </div>
+                  )}
                   {metrics?.test && (
                     <p>
                       Held-out accuracy:{" "}
@@ -366,6 +403,37 @@ export default function ProductTrainingLibrary() {
                         ? "N/A"
                         : `${(metrics.test.falseIdentificationRate * 100).toFixed(1)}%`}
                     </p>
+                  )}
+                  {metrics?.test?.perClass && (
+                    <details>
+                      <summary>Results by item</summary>
+                      <table className={styles.table}>
+                        <thead>
+                          <tr>
+                            <th>Item</th>
+                            <th>Test photos</th>
+                            <th>Recall</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {metrics.test.perClass.map((item: Row) => (
+                            <tr key={item.label}>
+                              <td>
+                                {item.label === "__unknown__"
+                                  ? "Unrelated / background"
+                                  : library.counts.find((row: Row) =>
+                                      item.label.startsWith(
+                                        `${row.productId}:`,
+                                      ),
+                                    )?.product?.name || item.label}
+                              </td>
+                              <td>{item.support}</td>
+                              <td>{(item.recall * 100).toFixed(1)}%</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
                   )}
                   {model.status === "TRAINING" && (
                     <button

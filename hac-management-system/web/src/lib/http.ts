@@ -22,12 +22,12 @@ export function pagination(request: Request) {
   return {
     page: Math.max(
       1,
-      Math.min(100000, Number(u.searchParams.get("page")) || 1),
+      Math.min(100000, Math.floor(Number(u.searchParams.get("page"))) || 1),
     ),
     pageSize: Math.max(
       1,
-      Math.min(100, Number(u.searchParams.get("pageSize")) || 30),
+      Math.min(100, Math.floor(Number(u.searchParams.get("pageSize"))) || 30),
     ),
-    q: (u.searchParams.get("q") || "").slice(0, 100),
+    q: (u.searchParams.get("q") || "").trim().slice(0, 100),
   };
 }

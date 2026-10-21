@@ -100,8 +100,11 @@ test("top three appear inside live camera; Yes adds once and scanning continues"
   await expect
     .poll(() => predictions, { timeout: 20000 })
     .toBeGreaterThan(previous);
+  await expect(overlay.getByRole("button",{name:/Laptop/})).toBeDisabled();
   await page.screenshot({
     path: ".local/quick-camera-mobile.png",
     fullPage: true,
   });
 });
+
+test.beforeEach(async ({page})=>{await page.addInitScript(()=>localStorage.setItem("hac-install-dismissed","1"));});

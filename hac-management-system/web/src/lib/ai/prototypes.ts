@@ -13,12 +13,13 @@ export function createPrototypeArtifact(
   }
   const prototypes: Sample[] = [];
   for (const rows of groups.values()) {
-    if (rows.length <= limit) {
+    const budget = rows[0].productId === null ? Math.max(limit, 96) : limit;
+    if (rows.length <= budget) {
       prototypes.push(...rows);
       continue;
     }
     const centers = [rows[0].embedding];
-    while (centers.length < limit) {
+    while (centers.length < budget) {
       let best = rows[0].embedding,
         distance = -1;
       for (const row of rows) {

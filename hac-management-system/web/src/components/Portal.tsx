@@ -43,6 +43,9 @@ import {
   Paperclip,
   Eye,
 } from "lucide-react";
+import UnlistedItemForm from "./UnlistedItemForm";
+import CataloguePicture from "./CataloguePicture";
+import CatalogueImageEditor from "./CatalogueImageEditor";
 import ProductTrainingLibrary from "@/components/ai/ProductTrainingLibrary";
 import Scanner from "@/components/ai/Scanner";
 import LiveProductSearch from "./LiveProductSearch";
@@ -267,7 +270,7 @@ export default function Portal({ route }: { route: string[] }) {
       )}
       <aside className={`sidebar ${nav ? "open" : ""}`}>
         <Link href="/dashboard" className="brand">
-          <span className="brand-symbol">h</span>
+          <img className="hac-wordmark" src="/branding/hac-wordmark.png" alt="Halal Assessment Council"/>
           <span>
             HAC<span className="brand-sub">CERTIFICATION & INSPECTION</span>
           </span>
@@ -388,6 +391,7 @@ export default function Portal({ route }: { route: string[] }) {
             </button>
           </div>
         </header>
+        <button className="install-shortcut" onClick={()=>window.dispatchEvent(new Event("hac-install"))}>Install HAC app</button>
         <OfflineStatus />
         <main
           id="main-content"
@@ -1212,9 +1216,7 @@ function Cell({ row, path }: { row: Row; path: string }) {
   if (path === "product")
     return (
       <div className="product-name">
-        <span className="product-icon">
-          <Package size={17} />
-        </span>
+        <CataloguePicture src={row.imageUrl} name={row.name}/>
         <div>
           <strong>{row.name}</strong>
           <small>{row.itemCode}</small>
@@ -1245,22 +1247,16 @@ function ResourcePage({ module, user }: { module: string; user: Row }) {
     [selected, setSelected] = useState<Row | null>(null),
     [notice, setNotice] = useState("");
   const resource = endpoints[module];
+  const pending = useRef<AbortController|null>(null);
   const load = useCallback(() => {
-    setBusy(true);
-    api(
-      `/${resource}?page=${page}&pageSize=20&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`,
-    )
-      .then((v) => {
-        setRows(array(v));
-        setError("");
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setBusy(false));
-  }, [resource, page, q, status]);
-  useEffect(() => {
-    const timer = setTimeout(load, 180);
-    return () => clearTimeout(timer);
-  }, [load]);
+    pending.current?.abort(); const controller=new AbortController(); pending.current=controller;
+    setBusy(true);setError("");setRows([]);
+    api(`/${resource}?page=${page}&pageSize=20&q=${encodeURIComponent(q.trim())}&status=${encodeURIComponent(status)}`,{signal:controller.signal})
+      .then(v=>{if(!controller.signal.aborted)setRows(array(v));})
+      .catch(e=>{if(!controller.signal.aborted)setError(e.message);})
+      .finally(()=>{if(!controller.signal.aborted)setBusy(false);});
+  },[resource,page,q,status]);
+  useEffect(()=>{const timer=setTimeout(load,q.trim()?220:0);return()=>{clearTimeout(timer);pending.current?.abort();};},[load]);
   const canCreate =
     (!user.role.startsWith("COMPANY_") ||
       ["complaints", "corrective-actions"].includes(module)) &&
@@ -1298,6 +1294,7 @@ function ResourcePage({ module, user }: { module: string; user: Row }) {
         )}
       </PageHeading>
       <ErrorBox error={error} />
+      {error && <button className="button secondary" onClick={load}>Retry loading records</button>}
       {notice && (
         <div className="alert success" role="status">
           <CheckCircle2 size={17} />
@@ -1355,7 +1352,7 @@ function ResourcePage({ module, user }: { module: string; user: Row }) {
         </div>
         {busy ? (
           <Loading />
-        ) : rows.length ? (
+        ) : error ? <p role="status">Records could not be loaded. Retry or change your search.</p> : rows.length ? (
           <div className="table-scroll">
             <table>
               <thead>
@@ -1380,7 +1377,7 @@ function ResourcePage({ module, user }: { module: string; user: Row }) {
                   >
                     {columnConfig[module].map(([key]) => (
                       <td key={key}>
-                        <Cell row={row} path={key} />
+                        {["items","raw-materials","companies"].includes(module) && ["company"].includes(key) ? <span className="catalogue-name"><CataloguePicture src={row.imageUrl} name={row.name || row.legalName} company={module==="companies"}/><Cell row={row} path={key}/></span> : <Cell row={row} path={key} />}
                       </td>
                     ))}
                     <td className="action-cell">
@@ -1466,7 +1463,7 @@ function ResourcePage({ module, user }: { module: string; user: Row }) {
           module={module}
           user={user}
           row={selected}
-          close={() => setSelected(null)}
+          close={() => {setSelected(null);load();}}
           refreshed={() => {
             setSelected(null);
             load();
@@ -1782,6 +1779,7 @@ function DetailModal({
           <span className="demo-banner">Fictional demonstration record</span>
         )}
       </div>
+      {["items","raw-materials","companies"].includes(module)&&<CatalogueImageEditor kind={module==="companies"?"company":"product"} id={row.id} name={row.name||row.legalName} imageUrl={row.imageUrl} editable={["SUPER_ADMIN","HAC_ADMIN"].includes(user.role)}/>}
       <dl className="detail-grid">
         {Object.entries(row)
           .filter(
@@ -1792,6 +1790,7 @@ function DetailModal({
                 "passwordHash",
                 "tokenHash",
                 "normalizedName",
+                "imageUrl",
                 "isDemo",
               ].includes(k),
           )
@@ -3244,106 +3243,9 @@ function ChecklistQuestion({
     </form>
   );
 }
-function UnknownModal({
-  inspection,
-  close,
-  saved,
-}: {
-  inspection: Row;
-  close: () => void;
-  saved: (product: Row) => void | Promise<void>;
-}) {
-  const [form, setForm] = useState<Row>({ priority: "NORMAL" }),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const result = await api(`/inspections/${inspection.id}/unknown`, {
-        method: "POST",
-        body: JSON.stringify({ ...cleanObservationInput(form), description: form.description?.trim() || "" }),
-      });
-      await saved(result.observation);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Modal title="Unknown product — review required" close={close}>
-      <div className="alert info">
-        <CircleHelp size={18} />
-        An unknown item is unverified. It is not automatically non-Halal,
-        prohibited or HAC-approved.
-      </div>
-      <form onSubmit={submit}>
-        <div className="form-grid">
-          {[
-            ["name", "Product name", true],
-            ["brandName", "Observed brand", false],
-            ["manufacturerName", "Observed manufacturer", false],
-            ["barcode", "Barcode", false],
-          ].map(([key, title, req]) => (
-            <label key={String(key)}>
-              {String(title)}
-              {req ? " *" : ""}
-              <input
-                required={Boolean(req)}
-                value={form[String(key)] ?? ""}
-                onChange={(e) =>
-                  setForm({ ...form, [String(key)]: e.target.value })
-                }
-              />
-            </label>
-          ))}
-          <label className="span-two">
-            Description
-            <textarea
-              rows={3}
-              value={form.description ?? ""}
-              onChange={(e) =>
-                setForm({ ...form, description: e.target.value })
-              }
-            />
-          </label>
-          <label className="span-two">
-            Reason for investigation *
-            <textarea
-              required
-              rows={3}
-              value={form.reason ?? ""}
-              onChange={(e) => setForm({ ...form, reason: e.target.value })}
-            />
-          </label>
-          <label>
-            Priority
-            <select
-              value={form.priority}
-              onChange={(e) => setForm({ ...form, priority: e.target.value })}
-            >
-              {["NORMAL", "HIGH", "CRITICAL"].map((p) => (
-                <option key={p} value={p}>
-                  {label(p)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <ErrorBox error={error} />
-        <div className="modal-actions">
-          <button type="button" className="button secondary" onClick={close}>
-            Cancel
-          </button>
-          <button className="button primary" disabled={busy}>
-            <Plus size={17} />
-            Create provisional item & investigation
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
+function UnknownModal({inspection,close,saved}:{inspection:Row;close:()=>void;saved:(product:Row)=>void|Promise<void>}) {
+  const [busy,setBusy]=useState(false);
+  return <Modal title="Add an unlisted item" close={()=>{if(!busy)close();}}><UnlistedItemForm inspectionId={inspection.id} onBusy={setBusy} onSaved={async()=>{await saved({});}}/></Modal>;
 }
 function EvidencePanel({
   inspection,

@@ -1,4 +1,4 @@
-import { PDFFont, PDFDocument, PDFPage, rgb } from "pdf-lib";
+import { PDFFont, PDFDocument, PDFPage, PDFImage, rgb } from "pdf-lib";
 
 type Row = Record<string, unknown>;
 const record = (value: unknown): Row =>
@@ -166,6 +166,7 @@ export function appendMarmlInspectionRegister(
   bold: PDFFont,
   value: unknown,
   meta: Metadata,
+  logo?: PDFImage,
 ): void {
   const data = record(value),
     company = record(data.company),
@@ -365,20 +366,24 @@ export function appendMarmlInspectionRegister(
   }
   function newPage() {
     page = document.addPage([841.89, 595.28]);
-    page.drawRectangle({
-      x: margin,
-      y: 537,
-      width: 64,
-      height: 38,
-      color: black,
-    });
-    page.drawText("HAC", {
-      x: margin + 5,
-      y: 546,
-      size: 26,
-      font: bold,
-      color: white,
-    });
+    if (logo)
+      page.drawImage(logo, { x: margin, y: 534, width: 64, height: 47 });
+    else {
+      page.drawRectangle({
+        x: margin,
+        y: 537,
+        width: 64,
+        height: 38,
+        color: black,
+      });
+      page.drawText("HAC", {
+        x: margin + 5,
+        y: 546,
+        size: 26,
+        font: bold,
+        color: white,
+      });
+    }
     page.drawText("INSPECTED RAW MATERIAL LIST - MARML", {
       x: 98,
       y: 561,

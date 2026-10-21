@@ -75,7 +75,7 @@ async function mockInspection(page: Page) {
       })
       .catch(() => {});
   });
-  return { saved: () => saved };
+  return { saved: () => saved, inspection };
 }
 test("supervisor browses live matches and saves a raw material without variant/barcode", async ({
   page,
@@ -242,28 +242,31 @@ test("administrator edits checklist questions without JSON and removes future av
   await expect.poll(() => removed).toBe("template-1");
 });
 
-test("unlisted item is recorded once on the visit without catalogue creation or another save dialog", async ({
+test("unlisted item saves a required photo and observed identity in one request", async ({
   page,
 }) => {
-  await mockInspection(page);
-  let registered: Record<string, unknown> | undefined;
+  const state = await mockInspection(page);
+  let fields: FormData | undefined;
   await page.route(
     "**/api/v1/inspections/mobile-visit/unknown",
     async (route) => {
-      registered = route.request().postDataJSON();
+      const request = route.request();
+      fields = await new Request(request.url(), {
+        method: "POST",
+        headers: { "content-type": request.headers()["content-type"] },
+        body: new Uint8Array(request.postDataBuffer()!),
+      }).formData();
+      const observation = {
+        id: "unlisted-1",
+        productId: null,
+        observedName: String(fields.get("name")),
+        observedBrand: String(fields.get("brandName")),
+        conclusion: "UNLISTED_RAW_MATERIAL",
+      };
+      state.inspection.observations = [observation];
       await route.fulfill({
         status: 201,
-        json: {
-          data: {
-            observation: {
-              id: "unlisted-1",
-              productId: null,
-              observedName: registered?.name,
-              conclusion: "UNLISTED_RAW_MATERIAL",
-            },
-            catalogueChanged: false,
-          },
-        },
+        json: { data: { observation, catalogueChanged: false } },
       });
     },
   );
@@ -275,12 +278,21 @@ test("unlisted item is recorded once on the visit without catalogue creation or 
     name: "Add an unlisted item",
     exact: true,
   });
+  await expect(
+    dialog.getByRole("button", { name: "Add to inspected list", exact: true }),
+  ).toBeDisabled();
   await dialog
-    .getByRole("textbox", { name: "Item name", exact: true })
+    .getByLabel("Take item photo", { exact: true })
+    .setInputFiles("public/branding/hac-halal.png");
+  await dialog
+    .getByRole("textbox", { name: "Item name *", exact: true })
     .fill("Loose notebook");
   await dialog
-    .getByRole("button", { name: "Raw material", exact: true })
-    .click();
+    .getByRole("textbox", { name: "Brand *", exact: true })
+    .fill("Observed brand");
+  await dialog
+    .getByRole("combobox", { name: "Item type", exact: true })
+    .selectOption("RAW_MATERIAL");
   await dialog
     .getByRole("button", { name: "Add to inspected list", exact: true })
     .click();
@@ -288,9 +300,10 @@ test("unlisted item is recorded once on the visit without catalogue creation or 
   await expect(page.locator(".simple-item-list")).toContainText(
     "Loose notebook",
   );
-  expect(registered?.kind).toBe("RAW_MATERIAL");
-  expect(registered?.clientMutationId).toBeTruthy();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(fields?.get("kind")).toBe("RAW_MATERIAL");
+  expect(fields?.get("brandName")).toBe("Observed brand");
+  expect(fields?.get("file")).toBeInstanceOf(File);
+  expect(fields?.get("clientMutationId")).toBeTruthy();
 });
 
 test("No dismisses the single confirmation without saving", async ({
@@ -351,4 +364,29 @@ test("search failure ends loading and provides retry", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Retry search", exact: true }),
   ).toBeVisible();
+});
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("hac-install-dismissed", "1"),
+  );
+});
+
+test("already inspected product is disabled instead of allowing repeat adds", async ({
+  page,
+}) => {
+  const state = await mockInspection(page);
+  await page.goto("/inspections/mobile-visit");
+  await page.getByRole("button", { name: /Chicken Boneless Meat/ }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Yes, add", exact: true })
+    .click();
+  await expect(
+    page
+      .locator(".search-product")
+      .filter({ hasText: "Chicken Boneless Meat" }),
+  ).toBeDisabled();
+  await expect(page.locator(".simple-item-list li")).toHaveCount(1);
+  expect(state.saved()?.productId).toBe(product.id);
 });

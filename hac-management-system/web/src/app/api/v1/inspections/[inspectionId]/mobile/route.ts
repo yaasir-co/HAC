@@ -1,3 +1,4 @@
+import { withCatalogueImages } from "@/lib/catalogue-images";
 import { requireUser, requireRole, assertCompanyAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { ApiError, handleError } from "@/lib/errors";
@@ -24,7 +25,12 @@ export async function GET(
         startedAt: true,
         submittedAt: true,
         company: {
-          select: { legalName: true, tradingName: true, isDemo: true },
+          select: {
+            id: true,
+            legalName: true,
+            tradingName: true,
+            isDemo: true,
+          },
         },
         location: { select: { name: true, address: true } },
         observations: {
@@ -39,6 +45,7 @@ export async function GET(
             notes: true,
             verification: true,
             createdAt: true,
+            evidence: { select: { id: true }, take: 1 },
             product: {
               select: {
                 id: true,
@@ -54,12 +61,24 @@ export async function GET(
     });
     if (!record) throw new ApiError(404, "NOT_FOUND", "Inspection not found.");
     await assertCompanyAccess(user, record.companyId);
+    const products = await withCatalogueImages(
+      "product",
+      record.observations.flatMap((row) => (row.product ? [row.product] : [])),
+    );
+    const [company] = await withCatalogueImages("company", [record.company]);
+    const byProduct = new Map(products.map((product) => [product.id, product]));
     return json({
       ...record,
+      company,
       observations: record.observations.map((row) => {
         const verification = row.verification as Record<string, unknown>;
         return {
           ...row,
+          product: row.productId ? byProduct.get(row.productId) : null,
+          evidence: row.evidence.map((image) => ({
+            id: image.id,
+            url: `/api/v1/evidence/${image.id}`,
+          })),
           verification: {
             primaryStatus: verification.primaryStatus,
             label: verification.label,

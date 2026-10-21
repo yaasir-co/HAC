@@ -1,3 +1,4 @@
+import { withCatalogueImages } from "@/lib/catalogue-images";
 import type { Prisma } from "@prisma/client";
 import { requireUser, requireRole } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -32,23 +33,26 @@ export async function GET(request: Request) {
     };
     // No count, certificate histories, company relations or source JSON on the typing path.
     return json(
-      await db.product.findMany({
-        where,
-        take: id ? 1 : 12,
-        orderBy: { name: "asc" },
-        select: {
-          id: true,
-          name: true,
-          itemCode: true,
-          type: true,
-          status: true,
-          isDemo: true,
-          brand: { select: { name: true } },
-          variants: {
-            select: { id: true, name: true, sku: true, barcode: true },
+      await withCatalogueImages(
+        "product",
+        await db.product.findMany({
+          where,
+          take: id ? 1 : 12,
+          orderBy: { name: "asc" },
+          select: {
+            id: true,
+            name: true,
+            itemCode: true,
+            type: true,
+            status: true,
+            isDemo: true,
+            brand: { select: { name: true } },
+            variants: {
+              select: { id: true, name: true, sku: true, barcode: true },
+            },
           },
-        },
-      }),
+        }),
+      ),
     );
   } catch (error) {
     return handleError(error);

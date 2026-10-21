@@ -35,7 +35,7 @@ export default function Login() {
     <main className="login-page">
       <section className="login-story">
         <a className="brand brand-light" href="/login">
-          <span className="brand-symbol">h</span>
+          <img className="hac-wordmark" src="/branding/hac-wordmark.png" alt="Halal Assessment Council"/>
           <span>
             HAC<span className="brand-sub">CERTIFICATION & INSPECTION</span>
           </span>

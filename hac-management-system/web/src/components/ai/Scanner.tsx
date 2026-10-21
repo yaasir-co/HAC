@@ -18,6 +18,7 @@ import {
   type ObjectTestArtifact,
 } from "@/lib/ai/object-test-core";
 import { normalize } from "@/lib/ai/core";
+import CataloguePicture from "../CataloguePicture";
 import LiveProductSearch from "../LiveProductSearch";
 import { api, type Row } from "../client";
 import styles from "./ai.module.css";
@@ -27,6 +28,7 @@ type Product = {
   id: string;
   name: string;
   itemCode: string;
+  imageUrl?: string | null;
   brand?: { name: string };
   variants?: {
     id: string;
@@ -109,6 +111,7 @@ export default function Scanner({
   testModelId,
   canManageTests = false,
   cameraOnly = false,
+  inspectedProductIds = [],
   onQuickSelect,
 }: {
   inspectionId?: string;
@@ -120,6 +123,7 @@ export default function Scanner({
   testModelId?: string;
   canManageTests?: boolean;
   cameraOnly?: boolean;
+  inspectedProductIds?: string[];
   onQuickSelect?: (
     productId: string,
     variantId?: string,
@@ -441,7 +445,7 @@ export default function Scanner({
     prediction?: string,
     product?: Product,
   ) => {
-    if (selecting) return;
+    if (selecting || inspectedProductIds.includes(id)) return;
     if (!onQuickSelect) {
       stop();
       onSelect(id, variant, prediction);
@@ -602,7 +606,10 @@ export default function Scanner({
                       <button
                         type="button"
                         key={`${candidate.productId}:${candidate.variantId}`}
-                        disabled={selecting}
+                        disabled={
+                          selecting ||
+                          inspectedProductIds.includes(candidate.productId)
+                        }
                         onClick={() =>
                           void select(
                             candidate.productId,
@@ -612,9 +619,10 @@ export default function Scanner({
                           )
                         }
                       >
-                        <span className={styles.predictionNumber}>
-                          {index + 1}
-                        </span>
+                        <CataloguePicture
+                          src={candidate.product?.imageUrl}
+                          name={candidate.product?.name || "Catalogue item"}
+                        />
                         <span>
                           <strong>
                             {candidate.product?.name || "Catalogue item"}
@@ -624,7 +632,11 @@ export default function Scanner({
                               "Confirm the physical item"}
                           </small>
                         </span>
-                        <span>＋</span>
+                        <span>
+                          {inspectedProductIds.includes(candidate.productId)
+                            ? "Added"
+                            : "＋"}
+                        </span>
                       </button>
                     ))}
                   </>
@@ -855,6 +867,10 @@ export default function Scanner({
                     )
                   }
                 >
+                  <CataloguePicture
+                    src={candidate.product?.imageUrl}
+                    name={candidate.product?.name || "Catalogue item"}
+                  />
                   <span>
                     <strong>
                       {candidate.product?.name || candidate.productId}
