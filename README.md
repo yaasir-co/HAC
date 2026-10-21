@@ -6,7 +6,7 @@ The application implements a real database-backed inspection workflow and keeps 
 
 See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for verified functionality and remaining work. This is an initial integrated implementation, not a completed or certified production platform. Full requirements are preserved in [docs/PRODUCT_REQUIREMENTS.md](docs/PRODUCT_REQUIREMENTS.md).
 
-For a direct GitHub import into Hostinger, use [Hostinger setup and sign-in troubleshooting](docs/HOSTINGER_SETUP.md), including the `APP_ORIGIN` fix, real database configuration and one-time administrator creation.
+For a direct GitHub import into Hostinger, use [Hostinger setup and sign-in troubleshooting](docs/HOSTINGER_SETUP.md), including the `APP_ORIGIN` fix and opt-in database/administrator setup through the standard `npm run build` dropdown option.
 
 ## Development
 
@@ -45,7 +45,7 @@ npm run build
 npm start
 ```
 
-Root installation runs a locked installation in the web directory, including the development dependencies needed to compile the application. The build generates the Prisma client and prepares the standalone Next.js server. `npm start` requires the application's configured MySQL database, applied migrations and private environment configuration; complete the local setup above before starting it on your machine. These root commands do not create a database, apply migrations, seed records or deploy a service. Root `npm test`, `npm run typecheck` and `npm run dev` also forward to the web application.
+Root installation runs a locked installation in the web directory, including the development dependencies needed to compile the application. The build generates the Prisma client and prepares the standalone Next.js server. `npm start` requires the application's configured MySQL database, applied migrations and private environment configuration; complete the local setup above before starting it on your machine. With `HAC_HOSTED_SETUP` unset or false, installation and build do not connect to or change the database. Explicit hosted setup with `HAC_HOSTED_SETUP=true` applies migrations and creates a first administrator only for an empty user table; see [Hostinger setup](docs/HOSTINGER_SETUP.md). No demonstration seeding or service deployment is part of these scripts. Root `npm test`, `npm run typecheck` and `npm run dev` also forward to the web application.
 
 If a build service supports an application/root directory, prefer `hac-management-system/web`, with install command `npm ci --include=dev`, build command `npm run build`, and start command `npm start`. This also lets the service detect Next.js directly. See [build-directory configuration](DEPLOYMENT.md#repository-root-builds-and-application-directory) for details. Follow [Windows setup](docs/WINDOWS_SETUP.md) for the complete PowerShell installation sequence.
 

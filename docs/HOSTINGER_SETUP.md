@@ -12,18 +12,17 @@ Apply the environment change using the restart/redeploy operation available for 
 
 Merge the pull request containing the hosted-login setup changes into the branch Hostinger imports, or select that fix branch if branch selection is available. An open pull request does not update `main`. Confirm the build log's commit matches the intended revision.
 
-Use these settings where the service exposes them:
+In the GitHub import form, keep these settings:
 
 | Setting | Value |
 |---|---|
 | Repository | `yaasir-co/HAC` |
-| Application/root directory | Prefer `hac-management-system/web` when configurable |
-| Node.js | 24.19 or newer within Node 24, for build and runtime |
-| Install command | `npm ci --include=dev` |
-| Normal build command | `npm run build` |
-| Start command | `npm start` |
+| Framework preset | Next.js |
+| Application/root directory | `hac-management-system/web` |
+| Node.js | `24.x`; verify the actual version is at least 24.19 |
+| Build command dropdown | `npm run build` |
 
-If an application-directory setting is unavailable, the repository-root scripts forward these commands to the web application. A root manifest can be detected as generic Node.js; a Next.js preset should use the nested application directory where possible. Keep `npm start` where a custom start command is supported: it starts the built standalone server, binds to all interfaces and respects the host-provided `PORT`. Do not substitute a static export or `next start` for this startup helper.
+The setup below uses the existing `npm run build` option; a custom build command is unnecessary. If installation/start commands are separately configurable, use `npm ci --include=dev` and `npm start`. The start helper runs the standalone server and respects the host-provided `PORT`. Repository-root commands also forward to the web application if a different import flow lacks an application-directory setting.
 
 ## Configure the real database and private runtime settings
 
@@ -41,47 +40,48 @@ URL-encode special characters in the URI's username and password components; do 
 
 Keep private storage outside public assets and confirm it survives rebuilds/restarts. Relative storage paths belong to the web directory; use provider-supported persistent absolute paths when available. The start helper sets `NODE_ENV=production`. Database credentials and administrator setup values must never use `NEXT_PUBLIC_*` names.
 
-## Apply the schema, check it, and create the first administrator
+## Initialize through the standard build command
 
-The following commands become available from either the repository root or `hac-management-system/web` after the setup fixes are in the selected branch. Run them only against the intended database. Normal installation/build does not apply migrations or create users.
+This setup requires the new hosted-build changes in the branch Hostinger imports. The build environment must receive the private database settings and be able to reach that database. Runtime-only database access is insufficient for this path.
 
-Use an application shell or SSH if the service offers one and it provides the application checkout with its installed build dependencies. Run:
+Review the committed migrations and back up any retained data first. An existing validated database must not be reset or replaced to fix login. If existing tables lack the expected migration history, review their schema/history before proceeding. Do not use the local migration fallback on Hostinger.
+
+Temporarily add these private environment variables alongside the runtime settings:
+
+| Variable | Purpose |
+|---|---|
+| `HAC_HOSTED_SETUP` | `true` to enable migrations and first-account setup during this build |
+| `HAC_ADMIN_EMAIL` | The first administrator's real sign-in email |
+| `HAC_ADMIN_PASSWORD` | A new private password containing 12 to 1024 characters |
+| `HAC_ADMIN_NAME` | Optional display name; defaults to `HAC Administrator` |
+
+Keep the build dropdown set to **`npm run build`**, then start the build using Hostinger's available deployment control. The opted-in build:
+
+1. Generates the Prisma client and applies reviewed versioned migrations with `prisma migrate deploy`.
+2. Checks the required authentication tables.
+3. Creates one active `HAC_ADMIN` with a hashed password and audit record only when the user table is empty.
+4. Continues with the Next.js build and standalone assets.
+
+Build logs should show `Hosted setup explicitly enabled...`, `Prisma migrations completed successfully.` and `Authentication tables are present.`, then administrator creation or a message that existing accounts were preserved, followed by Next.js compilation. A failed migration/setup stage stops the build; correct the reported cause instead of resetting the database.
+
+If the log instead says `Hosted database setup is disabled...`, the build did not receive an enabled flag; check that the private setting is available during the build.
+
+If **any user** already exists, including an inactive or non-administrator user, hosted setup skips account creation and preserves all existing passwords. It does not promote an account or reset a password. A repeated opted-in build therefore does not fail merely because the first account was already created. Use the saved credentials for an existing administrator.
+
+After a successful setup, remove `HAC_HOSTED_SETUP` or set it to `false`, and remove `HAC_ADMIN_EMAIL`, `HAC_ADMIN_PASSWORD` and `HAC_ADMIN_NAME`. Keep `npm run build` unchanged. With the flag unset or false, future builds generate/compile the application without connecting to or changing the database. Retain the administrator credentials privately and sign in at the configured HTTPS origin.
+
+## Optional manual setup through a shell
+
+If the service offers a shell/SSH with the application checkout and installed build dependencies, these commands work from either the repository root or `hac-management-system/web`:
 
 ```bash
 npm run db:migrate
 npm run db:check
 ```
 
-`db:migrate` applies committed versioned Prisma migrations. Review pending migrations and back up a database with retained data before applying changes. An existing validated database must not be reset or replaced to fix login. If existing tables lack the expected migration history, stop and review their schema/history instead of forcing a reset. Do not use the local migration fallback on Hostinger.
+`db:check` reports connectivity, authentication tables and active-administrator presence without printing connection credentials. For an empty user table, set the private `HAC_ADMIN_*` values above, run `npm run admin:create`, then remove them. The manual administrator command deliberately **refuses** if any user exists; it is not password recovery. Both private diagnostic/admin commands generate the Prisma client before running.
 
-`db:check` tests connectivity, checks the authentication tables and reports whether an active administrator exists. It prints diagnostic categories without printing the connection URI or password. Both `db:check` and `admin:create` generate the Prisma client before running, so they also work before the first application build. If an administrator already exists, use that account's saved credentials.
-
-For a database containing **no users**, temporarily set these private environment variables:
-
-| Variable | Purpose |
-|---|---|
-| `HAC_ADMIN_EMAIL` | The first administrator's real sign-in email |
-| `HAC_ADMIN_PASSWORD` | A new private password containing 12 to 1024 characters |
-| `HAC_ADMIN_NAME` | Optional display name; defaults to `HAC Administrator` |
-
-Then run:
-
-```bash
-npm run admin:create
-npm run db:check
-```
-
-The command creates one active `HAC_ADMIN` with a hashed password and an audit record. It refuses to run if **any user** already exists, including an inactive or non-administrator user. It never overwrites users, promotes an existing account or resets a password. Remove the temporary `HAC_ADMIN_EMAIL`, `HAC_ADMIN_PASSWORD` and `HAC_ADMIN_NAME` settings after success; retain the credentials privately and sign in at the configured origin.
-
-### If the service provides no shell
-
-Only if the build environment can reach the intended database and receives the private database and one-time administrator settings, temporarily replace the normal build command with:
-
-```bash
-npm run db:migrate && npm run db:check && npm run admin:create && npm run build
-```
-
-This is a one-time initialization path for an empty user table, not a recurring deployment command. After it succeeds, immediately restore `npm run build` and remove the temporary `HAC_ADMIN_*` settings before another deployment. The administrator command will deliberately fail on a later build once a user exists. If build-time database access or private environment variables are unavailable, use a supported private administration environment with database access instead; do not place secrets in source code or make an unauthenticated setup endpoint.
+If build-time database access is unavailable, use this supported private administration path or another authorized environment with database access. Do not add secrets to source code or create an unauthenticated setup endpoint.
 
 ## Read the error category
 
@@ -97,6 +97,6 @@ This is a one-time initialization path for an empty user table, not a recurring 
 | `DATABASE_UNAVAILABLE` | Check hostname, port, network access and connection limits |
 | `DATABASE_TLS_FAILED` | Check provider TLS requirements and supported certificate configuration |
 | `DATABASE_CHECK_FAILED` / other `500 INTERNAL_ERROR` | Inspect the private runtime logs; these generic responses do not prove a password is wrong |
-| Administrator creation refused because users exist | Use the existing account; this command is not password recovery |
+| Manual administrator creation refused because users exist | Use the existing account; this command is not password recovery |
 
 Share only sanitized error categories when asking for help, never environment values, complete connection URIs or passwords. See [deployment and recovery](../DEPLOYMENT.md) for database privileges, backups and remaining production requirements.
