@@ -1,0 +1,23 @@
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+uploads/
+.local/
+*.tsbuildinfo
+playwright-report/
+test-results/
+coverage/
+# Generated Next.js declarations and local/tool artifacts
+next-env.d.ts
+*.log
+*.pid
+*.tmp
+*.pem
+*.key
+*.p12
+*.pfx
+.DS_Store
+Thumbs.db
+/var/cache/
