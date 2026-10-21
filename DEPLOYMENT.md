@@ -2,7 +2,7 @@
 
 No production service has been deployed. A successful build or local demonstration does not establish production readiness. Review `IMPLEMENTATION_STATUS.md` and `TESTING.md` for observed validation and remaining blockers.
 
-For a direct GitHub import into Hostinger Web App, follow [Hostinger setup](docs/HOSTINGER_SETUP.md) for build/runtime settings, the hosted `APP_ORIGIN` login fix, database diagnostics and private one-time administrator creation. The local Docker setup below is for development.
+For a direct GitHub import into Hostinger Web App, follow [Hostinger setup](docs/HOSTINGER_SETUP.md) for the `APP_ORIGIN` login fix and opt-in schema/administrator initialization using the existing `npm run build` dropdown option. The local Docker setup below is for development.
 
 ## Local prerequisites and setup
 
@@ -51,7 +51,7 @@ Services that only support the repository root can use the forwarding commands a
 
 Both command entry points run with the web application as the working directory. Its standalone server remains at `hac-management-system/web/.next/standalone/server.js`; the build includes `.next/static` and `public` in that standalone directory. Use `npm start` so the existing startup helper loads configuration and resolves private storage paths. Relative `.env`, `.local/storage` and `uploads` paths continue to belong to the web directory.
 
-Installation and build do not run Docker setup, migrations, restoration, seeding or deployment. Starting the server requires a separately configured MySQL database with reviewed migrations already applied and the private runtime settings below. For local Windows testing, complete [Windows setup](docs/WINDOWS_SETUP.md) before starting the production build. No hosting configuration or public deployment is performed by these repository commands.
+With `HAC_HOSTED_SETUP` unset or false, installation/build do not connect to or change the database. Setting it explicitly to `true` runs reviewed migrations, authentication-table checks and first-administrator creation for an empty user table during the standard build. Existing users and passwords are preserved. This path requires build-time database access and private setup variables; disable the flag and remove temporary administrator settings after success. See [Hostinger setup](docs/HOSTINGER_SETUP.md) for the exact flow. No Docker setup, restoration, demonstration seeding or deployment is part of the scripts. Starting the server requires the configured database and private runtime settings below. For local Windows testing, complete [Windows setup](docs/WINDOWS_SETUP.md).
 
 ## Configuration
 
