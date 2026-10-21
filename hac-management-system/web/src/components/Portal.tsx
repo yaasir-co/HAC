@@ -43,11 +43,12 @@ import {
   Paperclip,
   Eye,
 } from "lucide-react";
-import TrainingStudio from "@/components/ai/TrainingStudio";
+import ProductTrainingLibrary from "@/components/ai/ProductTrainingLibrary";
 import Scanner from "@/components/ai/Scanner";
 import LiveProductSearch from "./LiveProductSearch";
 import ReadabilityControls from "./ReadabilityControls";
 import ChecklistManager from "./ChecklistManager";
+import SimpleInspection from "./SimpleInspection";
 import { cleanObservationInput } from "@/lib/observation-input";
 import WorkspaceSetup, { MaterialSourceDetails } from "./WorkspaceSetup";
 import StartInspectionButton, { canStartInspection } from "./StartInspection";
@@ -395,7 +396,7 @@ export default function Portal({ route }: { route: string[] }) {
           {module === "dashboard" ? (
             <Dashboard user={user} />
           ) : module === "inspections" && route[1] ? (
-            <InspectionWorkspace id={route[1]} user={user} />
+            user.role === "AUDITOR" ? <InspectionWorkspace id={route[1]} user={user} /> : <SimpleInspection id={route[1]} user={user} />
           ) : current === "ai/training" ? (
             <>
               <PageHeading
@@ -403,7 +404,7 @@ export default function Portal({ route }: { route: string[] }) {
                 description="Collect product images, train a visual index and validate real predictions."
                 eyebrow="PRODUCT INTELLIGENCE"
               />
-              <TrainingStudio />
+              <ProductTrainingLibrary />
             </>
           ) : module === "scanner" ? (
             <StandaloneScanner canManageTests={admin} />
@@ -2204,7 +2205,7 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
       )}
       {tab === "products" && (
         <section className="panel">
-          {started && <div className="product-entry"><LiveProductSearch select={select} /><div className="product-entry-actions"><button type="button" className="button secondary" onClick={() => setTab("scanner")}><ScanLine size={18} />Scan with camera</button><button type="button" className="button secondary" onClick={() => setUnknown(true)}><Plus size={18} />Product not listed?</button></div></div>}
+          {started && <div className="product-entry"><LiveProductSearch select={(pid, vid) => select(pid, vid)} /><div className="product-entry-actions"><button type="button" className="button secondary" onClick={() => setTab("scanner")}><ScanLine size={18} />Scan with camera</button><button type="button" className="button secondary" onClick={() => setUnknown(true)}><Plus size={18} />Product not listed?</button></div></div>}
           <div className="panel-heading">
             <div>
               <h2>Saved products</h2>
@@ -2557,8 +2558,7 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
           saved={async (product: Row) => {
             setUnknown(false);
             await load();
-            setNotice("Provisional product and investigation saved. Confirm its physical identity to record the observation.");
-            select(product.id);
+            setNotice("Unlisted item saved on this inspection only.");
           }}
         />
       )}
@@ -3264,7 +3264,7 @@ function UnknownModal({
         method: "POST",
         body: JSON.stringify({ ...cleanObservationInput(form), description: form.description?.trim() || "" }),
       });
-      await saved(result.product);
+      await saved(result.observation);
     } catch (e) {
       setError((e as Error).message);
     } finally {

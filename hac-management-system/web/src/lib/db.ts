@@ -13,11 +13,13 @@ function createClient() {
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
     database: url.pathname.slice(1),
-    connectionLimit: 8,
+    connectionLimit: 4,
+    acquireTimeout: 8000,
+    socketTimeout: 30000,
     connectTimeout: 10000,
   });
   return new PrismaClient({ adapter });
 }
 const globalDb = globalThis as unknown as { hacDb?: PrismaClient };
 export const db = globalDb.hacDb ?? createClient();
-if (process.env.NODE_ENV !== "production") globalDb.hacDb = db;
+globalDb.hacDb = db;

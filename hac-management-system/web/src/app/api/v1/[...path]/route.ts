@@ -26,7 +26,10 @@ import {
 } from "@/lib/inspection";
 import { physicalExpiryInstant, verifyProduct } from "@/lib/verification";
 import { prepareEvidence } from "@/lib/evidence";
-import { startInspectionNow, startInspectionSchema } from "@/lib/start-inspection";
+import {
+  startInspectionNow,
+  startInspectionSchema,
+} from "@/lib/start-inspection";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const ADMIN = ["SUPER_ADMIN", "HAC_ADMIN"];
@@ -234,7 +237,12 @@ async function get(
             items: {
               include: {
                 product: {
-                  include: { brand: true, manufacturer: true, variants: true, rawMaterialListing: true },
+                  include: {
+                    brand: true,
+                    manufacturer: true,
+                    variants: true,
+                    rawMaterialListing: true,
+                  },
                 },
               },
             },
@@ -917,9 +925,17 @@ async function post(
           declaration: z.literal(true),
         }),
       );
-      return json(await submitInspection(user, recordId, p.version));
+      return json(
+        await submitInspection(
+          user,
+          recordId,
+          p.version,
+          user.id === record.inspectorId,
+        ),
+      );
     }
-    if (action !== "observations") assertDraft(record);
+    if (!["observations", "unknown"].includes(action ?? ""))
+      assertDraft(record);
     if (action === "observations") {
       const p = await body(request, observationSchema);
       const existing = await db.observation.findUnique({
@@ -997,7 +1013,23 @@ async function post(
             "The selected variant does not belong to this product.",
           );
       }
-      if(p.recognitionPredictionId){const prediction=await db.recognitionPrediction.findUnique({where:{id:p.recognitionPredictionId},include:{observation:{select:{id:true}}}});if(!prediction||prediction.userId!==user.id||prediction.inspectionId!==recordId||prediction.observation)throw new ApiError(422,"INVALID_RECOGNITION_REFERENCE","Recognition must belong to this inspector and inspection and must not already be confirmed.");}
+      if (p.recognitionPredictionId) {
+        const prediction = await db.recognitionPrediction.findUnique({
+          where: { id: p.recognitionPredictionId },
+          include: { observation: { select: { id: true } } },
+        });
+        if (
+          !prediction ||
+          prediction.userId !== user.id ||
+          prediction.inspectionId !== recordId ||
+          prediction.observation
+        )
+          throw new ApiError(
+            422,
+            "INVALID_RECOGNITION_REFERENCE",
+            "Recognition must belong to this inspector and inspection and must not already be confirmed.",
+          );
+      }
       const createdAt = new Date();
       const verification = await verifyProduct({
         ...p,
@@ -1048,7 +1080,11 @@ async function post(
             createdAt,
           },
         });
-        if(p.recognitionPredictionId)await tx.recognitionPrediction.update({where:{id:p.recognitionPredictionId},data:{acceptedProductId:p.productId}});
+        if (p.recognitionPredictionId)
+          await tx.recognitionPrediction.update({
+            where: { id: p.recognitionPredictionId },
+            data: { acceptedProductId: p.productId },
+          });
         const issues = verification.outcomes.filter(
           (o) =>
             ![
@@ -1098,78 +1134,76 @@ async function post(
         request,
         z.object({
           name: text,
+          kind: z.enum(["PRODUCT", "RAW_MATERIAL"]).default("PRODUCT"),
           brandName: text.optional(),
           manufacturerName: text.optional(),
           barcode: text.optional(),
-          description: note,
-          reason: note.min(1),
-          priority: z
-            .enum(["LOW", "NORMAL", "HIGH", "CRITICAL"])
-            .default("NORMAL"),
+          description: note.optional(),
+          reason: note.optional(),
+          clientMutationId: z.string().min(8).max(100).optional(),
         }),
       );
-      const result = await db.$transaction(async (tx) => {
+      if (p.clientMutationId) {
+        const previous = await db.observation.findUnique({
+          where: { clientMutationId: p.clientMutationId },
+        });
+        if (previous) {
+          if (
+            previous.inspectionId !== recordId ||
+            previous.createdById !== user.id ||
+            previous.productId ||
+            previous.observedName !== p.name ||
+            previous.conclusion !== `UNLISTED_${p.kind}` ||
+            (previous.observedBrand ?? undefined) !== p.brandName ||
+            (previous.observedManufacturer ?? undefined) !==
+              p.manufacturerName ||
+            (previous.observedBarcode ?? undefined) !== p.barcode ||
+            (previous.notes ?? "") !==
+              [p.description, p.reason].filter(Boolean).join("\n")
+          )
+            throw new ApiError(
+              409,
+              "IDEMPOTENCY_CONFLICT",
+              "This request key was already used for different inspection content.",
+            );
+          return json({ observation: previous, catalogueChanged: false });
+        }
+      }
+      assertDraft(record);
+      const createdAt = new Date();
+      const verification = await verifyProduct({
+        companyId: record.companyId,
+        locationId: record.locationId,
+        identityConfirmed: true,
+        at: createdAt,
+      });
+      const observation = await db.$transaction(async (tx) => {
         await lockDraft(tx, record);
-        if (
-          p.barcode &&
-          (await tx.productVariant.findUnique({
-            where: { barcode: p.barcode },
-          }))
-        )
-          throw new ApiError(
-            409,
-            "PRODUCT_EXISTS",
-            "This barcode is already in the catalogue. Select the existing product.",
-          );
-        const brand = await tx.brand.upsert({
-          where: { name: p.brandName || "Unspecified — provisional" },
-          update: {},
-          create: { name: p.brandName || "Unspecified — provisional" },
-        });
-        const manufacturer = await tx.manufacturer.upsert({
-          where: { name: p.manufacturerName || "Unspecified — provisional" },
-          update: {},
-          create: { name: p.manufacturerName || "Unspecified — provisional" },
-        });
-        const product = await tx.product.create({
+        const saved = await tx.observation.create({
           data: {
-            itemCode: reference("PROV"),
-            name: p.name,
-            normalizedName: normalize(p.name),
-            brandId: brand.id,
-            manufacturerId: manufacturer.id,
-            description: p.description,
-            status: "PROVISIONAL",
-            isDemo: record.isDemo,
-            variants: {
-              create: {
-                name: "Unverified variant",
-                sku: reference("PROV-SKU"),
-                barcode: p.barcode,
-              },
-            },
-            companies: {
-              create: {
-                companyId: record.companyId,
-                relationship: "OBSERVED",
-                status: "PENDING",
-              },
-            },
+            inspectionId: recordId,
+            createdById: user.id,
+            clientMutationId: p.clientMutationId ?? reference("OBS"),
+            observedName: p.name,
+            observedBrand: p.brandName,
+            observedManufacturer: p.manufacturerName,
+            observedBarcode: p.barcode,
+            notes: [p.description, p.reason].filter(Boolean).join("\n"),
+            conclusion: `UNLISTED_${p.kind}`,
+            identityConfirmed: true,
+            verification: jsonValue(verification),
+            createdAt,
           },
         });
-        const investigation = await tx.investigation.create({
+        await tx.inspectionFinding.create({
           data: {
-            reference: reference("INV"),
-            companyId: record.companyId,
             inspectionId: recordId,
-            productId: product.id,
-            title: `Unknown product: ${p.name}`,
-            description: p.reason,
-            priority: p.priority,
-            createdById: user.id,
-            events: {
-              create: { userId: user.id, type: "CREATED", message: p.reason },
-            },
+            observationId: saved.id,
+            type: "UNLISTED_ITEM",
+            title: `Unlisted item: ${p.name}`,
+            description:
+              "Recorded manually on this inspection. No master catalogue entry or approval was created.",
+            severity: "OBSERVATION",
           },
         });
         await tx.inspectionSignature.deleteMany({
@@ -1178,16 +1212,16 @@ async function post(
         await audit(
           tx,
           user,
-          "REGISTER_PROVISIONAL",
-          "Product",
-          product.id,
+          "RECORD_UNLISTED_ITEM",
+          "Observation",
+          saved.id,
           undefined,
-          { product, investigation },
+          { name: p.name, kind: p.kind, catalogueChanged: false },
           record.companyId,
         );
-        return { product, investigation };
+        return saved;
       });
-      return json(result, 201);
+      return json({ observation, catalogueChanged: false }, 201);
     }
     if (action === "checklist") {
       const p = await body(
@@ -1416,7 +1450,10 @@ async function post(
           legalName: text,
           tradingName: text.optional(),
           registrationNumber: z.preprocess(
-            (value) => typeof value === "string" ? value.trim() || null : value ?? null,
+            (value) =>
+              typeof value === "string"
+                ? value.trim() || null
+                : (value ?? null),
             text.nullable(),
           ),
           category: text.default("RETAILER"),
@@ -1900,9 +1937,11 @@ async function post(
       const [location, inspector, checklist, assignment] = await Promise.all([
         db.companyLocation.findUnique({ where: { id: p.locationId } }),
         db.user.findUnique({ where: { id: p.inspectorId } }),
-        p.checklistVersionId ? db.checklistTemplateVersion.findUnique({
-          where: { id: p.checklistVersionId },
-        }) : Promise.resolve(null),
+        p.checklistVersionId
+          ? db.checklistTemplateVersion.findUnique({
+              where: { id: p.checklistVersionId },
+            })
+          : Promise.resolve(null),
         db.supervisorCompanyAssignment.findFirst({
           where: {
             userId: p.inspectorId,
@@ -1918,7 +1957,8 @@ async function post(
         !location.isActive ||
         !inspector?.isActive ||
         !INSPECTORS.includes(inspector.role) ||
-        (p.checklistVersionId && (!checklist || checklist.status !== "PUBLISHED")) ||
+        (p.checklistVersionId &&
+          (!checklist || checklist.status !== "PUBLISHED")) ||
         (!ADMIN.includes(inspector.role) && !assignment)
       )
         throw new ApiError(

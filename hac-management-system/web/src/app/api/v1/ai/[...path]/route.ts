@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
+import { readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -25,11 +25,11 @@ import {
 } from "@/lib/ai/core";
 import { prepareImage, extractImage } from "@/lib/ai/extractor";
 import { imageForm } from "@/lib/ai/upload";
+import { writablePrivateDirectory } from "@/lib/private-storage";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const ADMIN = ["SUPER_ADMIN", "HAC_ADMIN"],
   INSPECTOR = [...ADMIN, "SUPERVISOR", "AUDITOR"];
-const directory = path.resolve(process.env.UPLOAD_DIR || "uploads", "ai");
 const json = (value: unknown) =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 function publicImage<T extends { path: string; embedding: unknown }>(image: T) {
@@ -190,10 +190,14 @@ async function route(
         where: { id: segments[1] },
         include: {
           images: {
+            omit: { embedding: segments[2] === "images" && method === "POST" },
             include: { product: { include: { brand: true } } },
             orderBy: { createdAt: "desc" },
           },
-          models: { orderBy: { version: "desc" } },
+          models: {
+            orderBy: { version: "desc" },
+            omit: { artifact: segments[2] === "images" && method === "POST" },
+          },
         },
       });
       if (!dataset)
@@ -291,9 +295,11 @@ async function route(
         ].sort();
         const mergedGroup = linkedGroups[0];
         const id = randomUUID(),
-          filename = path.join(directory, `${id}.jpg`);
-        await mkdir(directory, { recursive: true });
-        await writeFile(filename, image.bytes, { flag: "wx" });
+          filename = path.join(
+            await writablePrivateDirectory("training"),
+            `${id}.jpg`,
+          );
+        await writeFile(filename, image.bytes, { flag: "wx", mode: 0o600 });
         try {
           const record = await db.$transaction(async (tx) => {
             if (linkedGroups.length > 1)

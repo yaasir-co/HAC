@@ -150,6 +150,7 @@ export async function submitInspection(
   user: AuthUser,
   id: string,
   version: number,
+  declaration = false,
 ) {
   const record = await getInspection(user, id);
   assertInspector(user, record);
@@ -174,30 +175,32 @@ export async function submitInspection(
     const response = record.responses.find((r) => r.questionId === question.id);
     // Checklist answers are optional. Validate content that was supplied, rather than
     // requiring an answer merely because an older template marked it required.
-    if (response && !answerValid(question.type, response.answer, question.options))
-      throw new ApiError(422, "INVALID_ANSWER", `Review the saved answer: ${question.text}`);
+    if (
+      response &&
+      !answerValid(question.type, response.answer, question.options)
+    )
+      throw new ApiError(
+        422,
+        "INVALID_ANSWER",
+        `Review the saved answer: ${question.text}`,
+      );
   }
   const inspectorSignature = record.signatures.find(
     (s) => s.role === "INSPECTOR" && s.userId === record.inspectorId,
   );
-  if (!inspectorSignature)
+  if (declaration && user.id !== record.inspectorId)
+    throw new ApiError(
+      403,
+      "SIGNATURE_IDENTITY",
+      "Only the assigned supervisor can confirm this visit.",
+    );
+  if (!inspectorSignature && !declaration)
     throw new ApiError(
       422,
       "SIGNATURE_REQUIRED",
       "The assigned inspector must sign the declaration.",
     );
-  const companySignature = record.signatures.find(
-    (s) => s.role === "COMPANY_REPRESENTATIVE",
-  );
-  if (
-    !companySignature ||
-    (!companySignature.signature && !companySignature.reason)
-  )
-    throw new ApiError(
-      422,
-      "REPRESENTATIVE_REQUIRED",
-      "Record the company representative signature or the reason it is unavailable.",
-    );
+  // A representative's signature is optional; never invent one or a reason for absence.
   return db.$transaction(
     async (tx) => {
       await lockDraft(tx, record);
@@ -232,9 +235,44 @@ export async function submitInspection(
           throw new ApiError(
             409,
             "REVALIDATION_REQUIRED",
-            `Approval sources changed for ${observation.observedName || observation.product?.name || "an observation"}. Reconcile the inspection and review the updated results before signing again.`,
+            `Approval sources changed for ${observation.observedName || observation.product?.name || "an observation"}. Reconcile the inspection and review the updated results before submitting again.`,
           );
         reconciled.push({ ...observation, verification });
+      }
+      const signatures = [...record.signatures];
+      if (declaration && !inspectorSignature) {
+        const signed = await tx.inspectionSignature.upsert({
+          where: { inspectionId_role: { inspectionId: id, role: "INSPECTOR" } },
+          update: {
+            userId: user.id,
+            name: user.name,
+            signature: null,
+            reason:
+              "Supervisor electronically confirmed the saved inspection at submission.",
+            signedAt: new Date(),
+          },
+          create: {
+            inspectionId: id,
+            role: "INSPECTOR",
+            userId: user.id,
+            name: user.name,
+            reason:
+              "Supervisor electronically confirmed the saved inspection at submission.",
+          },
+        });
+        const index = signatures.findIndex((row) => row.role === "INSPECTOR");
+        if (index >= 0) signatures[index] = signed;
+        else signatures.push(signed);
+        await audit(
+          tx,
+          user,
+          "CONFIRM_DECLARATION",
+          "InspectionSignature",
+          signed.id,
+          undefined,
+          { name: user.name, method: "AUTHENTICATED_CONFIRMATION" },
+          record.companyId,
+        );
       }
       const submittedAt = new Date();
       const snapshot = {
@@ -242,6 +280,7 @@ export async function submitInspection(
         snapshot: undefined,
         snapshotHash: undefined,
         observations: reconciled,
+        signatures,
         status: "SUBMITTED",
         submittedAt,
         version: version + 1,

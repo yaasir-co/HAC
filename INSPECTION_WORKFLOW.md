@@ -6,24 +6,19 @@ The primary supported workflow is an assigned product inspection using authorita
 
 An HAC administrator creates or selects companies, locations, brands, manufacturers, supplier records, products and variants. Certificates record the holder, effective dates and exact product/variant scope. An explicit retailer relationship is required only when the configured certificate scope says so: a manufacturer-held certificate can legitimately cover a retailer's product.
 
-Assign the company to a supervisor or auditor, select a published checklist version, and schedule the inspection. Scheduling rejects an existing scheduled/in-progress visit for the same inspector within one hour. This is a fixed initial scheduling rule, not a full calendar availability engine.
+Assign the company to a supervisor or auditor. Supervisors can start their own visits immediately; selecting a published checklist or scheduling ahead is optional. Scheduling rejects an existing scheduled/in-progress visit for the same inspector within one hour. This is a fixed initial scheduling rule, not a full calendar availability engine.
 
-AI recognition requires a separate preparation workflow: collect genuine, independently grouped photographs for at least two product classes plus background; train with actual TensorFlow feature extraction; review held-out metrics; and publish as an authorized HAC administrator. No trained recognition model is included in the seed. Without a published model, barcode and manual search remain usable.
+AI recognition requires a separate preparation workflow: collect genuine, independently grouped photographs for one or more product classes plus background; train with actual TensorFlow feature extraction; review held-out metrics; and publish as an authorized HAC administrator. No trained recognition model is included in the seed. Without a published model, barcode and manual search remain usable.
 
 ## Conduct an inspection
 
-1. Sign in and open an assigned company's visit. Check the company, branch, planned time, checklist and previous records available in the portal.
-2. Start the visit. The backend captures actual time, inspector context and a master-data marker.
-3. Identify a product using manual search, an exact barcode, or real model suggestions when a published model is available. The top three visual similarities are identity suggestions only. An uncertain result requires further identification.
-4. Select the exact product and variant. Review the backend verification result, applicable certificate, brand/manufacturer comparison and scope. Multiple issues remain visible together.
-5. Confirm physical identity and record observed brand, manufacturer, barcode/variant, batch, quantity, shelf location, physical expiry and notes. Physical expiry is separate from certificate expiry. Date-only shelf-life values are interpreted through the business-date rule, not treated as HAC certificate dates.
-6. Save with a unique client mutation key. The backend recalculates certification, creates discrepancy findings and binds the observation to the visit. Repeated scans remain in the same inspection.
-7. Add private evidence photographs. Each observation reference must belong to this inspection; evidence is not publicly accessible.
-8. Raise a linked investigation, complaint or non-conformity where appropriate. Unknown registration creates a provisional product and investigation; it neither certifies nor bans the product. Save the subsequent physical observation separately.
-9. Answer required general checklist questions with the correct answer type. Conditional questions follow their configured dependency; configured adverse answers require notes/evidence before submission.
-10. Review saved products, calculated results, observations, findings and evidence. Record the inspector declaration and company representative signature, or the documented reason that representative signature is unavailable. Changes to saved inspection content invalidate previous declarations.
-11. Submit the latest inspection version with explicit declaration. Required answers/signatures and at least one observation must exist. The server reconciles recorded verification outcomes and refuses submission when a changed authoritative result needs review. It freezes a hashed JSON snapshot.
-12. Download the revision-specific PDF or Excel report. Draft downloads carry a draft watermark; submitted reports use the submitted snapshot. Original artifacts are retained rather than silently overwritten.
+1. Sign in, choose an assigned company and **Start inspection**. Scheduling and a checklist are optional.
+2. Search by name, brand, barcode or item code. Matches update as you type. Tap the item, confirm **Yes, add**, and it is saved immediately with server-calculated approval checks. **No** makes no change.
+3. Or open **Scan items**: the mobile camera opens as a popup, with up to three real model suggestions over the preview. Tap the physical item and confirm **Yes, add**. The item is saved and the camera continues for the next item. An administrator must first train and publish the product model; the separate experimental object test is not the HAC product model.
+4. Use **Not in HAC list?** for an unlisted product/material. Enter its name and item type once. It is saved only on this inspection with an unlisted finding. This action creates no master product, brand, manufacturer, variant, retailer relationship or automatic approval.
+5. Review the saved products/materials and their calculated results. **Finish inspection**, then **Confirm & submit inspection**, records the assigned supervisor's authenticated declaration. A drawn/uploaded signature and representative signature are optional. The system records no signature on another person's behalf. Checklists are optional.
+6. The server checks the latest version and authoritative sources. Changed approval results require refreshing and reviewing checks before submission. Submission retains an immutable hashed snapshot.
+7. **Download inspection PDF** downloads the report from that snapshot. Failures appear with a retryable message. Draft/export endpoints still support revision-specific PDF and Excel; original artifact hashes are checked on every download.
 
 A normal inspector cannot edit authoritative approval, restriction or certificate records. A conclusion that disagrees with a calculated issue must capture the reason and does not change the official record.
 

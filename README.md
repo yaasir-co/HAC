@@ -10,7 +10,7 @@ For a direct GitHub import into Hostinger, use [Hostinger setup and sign-in trou
 
 For the supplied material list, ten companies, five supervisors and MARML-style inspection reports, see [MARML workspace setup](docs/MARML_WORKSPACE.md).
 
-For live product search, optional checklists, device text size and the experimental object scanner, see [Mobile inspections](docs/MOBILE_INSPECTIONS.md).
+For the one-confirmation mobile inspection flow, live camera selection, bulk product training, optional checklists and device text size, see [Mobile inspections](docs/MOBILE_INSPECTIONS.md).
 
 ## Development
 
@@ -58,8 +58,8 @@ If a build service supports an application/root directory, prefer `hac-managemen
 1. Sign in as the generated supervisor and open the fictional Keells visit.
 2. Start the inspection. Identify products by catalogue search, exact barcode or the scanner when a validated recognition model is published.
 3. Confirm the physical identity, compare observed details and inspect the server's explainable verification results.
-4. Save observations and linked investigations. Record unknown products as provisional; they remain unapproved.
-5. Attach photographs, answer the general checklist, reconcile changed approval sources, and sign the declarations.
+4. Tap an item and confirm **Yes, add** to save it immediately. Unlisted items are recorded only on that inspection.
+5. Review saved items and reconcile changed approval sources. Checklists and uploaded/drawn signatures are optional; submission records your authenticated confirmation.
 6. Submit an immutable snapshot, download its PDF/XLSX, and use the administrator account for authorized review.
 
 The AI studio stores real camera/uploaded images and implements TensorFlow MobileNet feature extraction, versioned similarity indexes and held-out evaluation. It never supplies invented predictions or metrics. Actual official MobileNet extraction, real training/evaluation, publication, prediction and rollback passed using clearly labeled generated image fixtures. These synthetic tests verify integration and do not establish field accuracy. Test models were archived. Representative product photographs and device validation remain required.

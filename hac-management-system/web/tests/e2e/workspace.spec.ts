@@ -38,13 +38,7 @@ test("sign in and inspect the live database workspace on desktop and mobile", as
   ).toBeVisible();
   await expect(page.locator("tbody tr").first()).toBeVisible();
   await page.locator("tbody tr").first().click();
-  await expect(
-    page.getByRole("tab", { name: "Product", exact: false }).first(),
-  ).toBeVisible();
-  await page.getByRole("tab", { name: "Products", exact: false }).click();
-  await expect(
-    page.getByRole("heading", { name: "Saved products" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Inspected items", exact: true })).toBeVisible();
   await page.setViewportSize({ width: 360, height: 800 });
   await page.goto("/dashboard");
   await expect(
@@ -100,6 +94,6 @@ test("camera permission failure remains actionable without invented predictions"
   await expect(page.getByText(/Camera unavailable:/)).toBeVisible();
   await page.getByRole("textbox", { name: "Find product" }).fill("rice");
   await expect(
-    page.getByRole("button", { name: /Rice.*Review/ }).first(),
+    page.getByRole("button", { name: /Rice/ }).first(),
   ).toBeVisible();
 });
