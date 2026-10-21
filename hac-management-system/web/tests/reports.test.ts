@@ -4,6 +4,8 @@ import { PDFDocument, PDFRawStream, PDFArray } from "pdf-lib";
 import { inflateSync } from "node:zlib";
 import ExcelJS from "exceljs";
 import sharp from "sharp";
+import { MARML_MATERIALS, MARML_SOURCE } from "../src/data/marml-materials";
+import { marmlInspectionRows } from "../src/lib/marml-report";
 import {
   renderInspectionPdf,
   renderInspectionWorkbook,
@@ -119,11 +121,11 @@ function fixture(count = 3) {
     ],
   };
 }
-function decodedPageText(doc: PDFDocument) {
-  const contents: string[] = [];
-  for (const page of doc.getPages()) {
+function decodedPages(doc: PDFDocument): string[] {
+  return doc.getPages().map((page) => {
+    const contents: string[] = [];
     const streams = page.node.Contents();
-    if (!streams) continue;
+    if (!streams) return "";
     const array = streams instanceof PDFArray ? streams.asArray() : [streams];
     for (const reference of array) {
       const stream = doc.context.lookup(reference);
@@ -140,8 +142,56 @@ function decodedPageText(doc: PDFDocument) {
         );
       }
     }
-  }
-  return contents.join("\n");
+    return contents
+      .join("\n")
+      .split("\n")
+      .filter((line) => line.endsWith(" Tj"))
+      .map((line) => line.slice(0, -3))
+      .join(" ");
+  });
+}
+const decodedPageText = (doc: PDFDocument) => decodedPages(doc).join("\n");
+
+function marmlFixture() {
+  return {
+    ...fixture(0),
+    isDemo: false,
+    companyId: "source-company",
+    company: {
+      id: "source-company",
+      legalName: MARML_SOURCE.companyName,
+      isDemo: false,
+    },
+    location: { name: "Seeduwa Plant", address: MARML_SOURCE.plantAddress },
+    observations: MARML_MATERIALS.map((material, index) => ({
+      id: `marml-observation-${index + 1}`,
+      product: {
+        name: material.name,
+        itemCode: `MARML-PSA0135-${String(index + 1).padStart(3, "0")}`,
+        brand: { name: material.brand || "Not recorded" },
+        manufacturer: { name: material.manufacturer || "Not recorded" },
+        rawMaterialListing: {
+          ...material,
+          sourceCompanyId: "source-company",
+          sourceCompanyName: MARML_SOURCE.companyName,
+          sourceMetadata: MARML_SOURCE,
+          sourceDocument: MARML_SOURCE.id,
+          reviewStatus: "SOURCE_LISTED_REQUIRES_REVIEW",
+        },
+      },
+      observedBrand: material.brand,
+      observedManufacturer: material.manufacturer,
+      conclusion: "REVIEW",
+      notes: `Saved inspection notes for source row ${material.rowNumber}.`,
+      physicalExpiry: "2027-10-21T00:00:00Z",
+      verification: {
+        outcomes: ["MARML_REVIEW_REQUIRED"],
+        primaryStatus: "MARML_REVIEW_REQUIRED",
+        certificate: null,
+        rules: [],
+      },
+    })),
+  };
 }
 
 describe("inspection reporting from saved values", () => {
@@ -224,6 +274,153 @@ describe("inspection reporting from saved values", () => {
     expect(sheet.getCell("N2").type).toBe(ExcelJS.ValueType.String);
     expect(workbook.getWorksheet("Checklist")!.getCell("C2").value).toBe(
       "COMPLIANT",
+    );
+  });
+
+  it("starts with the supplied MARML grid and repeats company and grouped headers on continuation pages", async () => {
+    const value = marmlFixture();
+    const doc = await PDFDocument.load(await renderInspectionPdf(value, meta));
+    const printedPages = decodedPages(doc);
+    const registerPages = printedPages.filter((page) =>
+      page.includes("INSPECTED RAW MATERIAL LIST - MARML"),
+    );
+    expect(registerPages.length).toBeGreaterThan(1);
+    expect(printedPages[0]).toContain("INSPECTED RAW MATERIAL LIST - MARML");
+    expect(doc.getPage(0).getWidth()).toBeGreaterThan(
+      doc.getPage(0).getHeight(),
+    );
+    for (const page of registerPages) {
+      expect(page).toContain("COMPANY NAME:");
+      expect(page).toContain(MARML_SOURCE.companyName);
+      expect(page).toContain("SUPPLIER");
+      expect(page).toContain("LOCAL");
+      expect(page).toContain("FOREIGN");
+      expect(page).toContain("HALAL CERTIFICATE");
+      expect(page).toContain("PSA0135");
+    }
+    const printed = printedPages.join("\n");
+    const registerText = registerPages.join("\n");
+    expect(registerText).toContain(MARML_MATERIALS[0].name);
+    expect(registerText).toContain(MARML_MATERIALS[38].name);
+    expect(registerText).toContain("MARML-PSA0135-039");
+    expect(printed).toContain(MARML_MATERIALS[0].name);
+    expect(printed).toContain(MARML_MATERIALS[38].name);
+    expect(printed).toContain("MARML-PSA0135-039");
+    expect(printed).toContain("Source cert. expired");
+    expect(printed).toContain("31-12-2026");
+    expect(printed).toContain("Saved inspection notes for source row 39.");
+    expect(printed).not.toContain("MASTER APPROVED RAW MATERIAL LIST - MARML");
+  });
+
+  it("retains a long manufacturer's final characters when a MARML row spans pages", async () => {
+    const value = marmlFixture();
+    value.observations = [value.observations[0]];
+    value.observations[0].product.rawMaterialListing.manufacturer =
+      "A long saved manufacturer address. ".repeat(150) +
+      "END-OF-SAVED-ADDRESS";
+    value.observations[0].observedManufacturer =
+      value.observations[0].product.rawMaterialListing.manufacturer;
+    const doc = await PDFDocument.load(await renderInspectionPdf(value, meta));
+    const pages = decodedPages(doc);
+    expect(
+      pages.filter((page) =>
+        page.includes("INSPECTED RAW MATERIAL LIST - MARML"),
+      ).length,
+    ).toBeGreaterThan(2);
+    expect(
+      pages
+        .filter((page) => page.includes("INSPECTED RAW MATERIAL LIST - MARML"))
+        .join("\n"),
+    ).toContain("END-OF-SAVED-ADDRESS");
+  });
+
+  it("uses a formal renewal when present and labels the older MARML date as source information", async () => {
+    const value = marmlFixture();
+    const observation = {
+      ...value.observations[0],
+      verification: {
+        ...value.observations[0].verification,
+        outcomes: ["VERIFIED_APPROVED"],
+        primaryStatus: "VERIFIED_APPROVED",
+        certificate: {
+          number: "ACTUAL-RENEWAL-REFERENCE",
+          issuer: "Current recorded issuer",
+          expiresAt: "2027-11-30",
+        },
+      },
+    };
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await renderInspectionWorkbook(
+        { ...value, observations: [observation] },
+        meta,
+      )) as never,
+    );
+    const register = workbook.getWorksheet("MARML inspection register")!;
+    expect(register.getCell("I2").value).toBe("Current recorded issuer");
+    expect(register.getCell("J2").value).toBe("30-11-2027");
+    expect(String(register.getCell("M2").value)).toContain(
+      "MARML source: HAC / 11-09-2025",
+    );
+    expect(String(register.getCell("M2").value)).toContain(
+      "Source cert. expired",
+    );
+  });
+
+  it("shows source-company mismatch and preserves missing fields without inventing certification", async () => {
+    const value = marmlFixture();
+    value.companyId = "another-company";
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(
+      (await renderInspectionWorkbook(value, meta)) as never,
+    );
+    const register = workbook.getWorksheet("MARML inspection register")!;
+    expect(register.rowCount).toBe(40);
+    expect(register.getCell("C2").value).toBe("-");
+    expect(register.getCell("H2").value).toBe("-");
+    expect(String(register.getCell("M2").value)).toContain(
+      "Outside source company scope",
+    );
+    expect(String(register.getCell("M2").value)).toContain("review required");
+    expect(
+      summarizeInspection({
+        observations: [
+          { verification: { outcomes: ["MARML_CERTIFICATE_EXPIRED"] } },
+        ],
+      }).expiredCertificates,
+    ).toBe(1);
+    const crossCompany = {
+      ...value,
+      company: { id: "another-company", legalName: "Keells", isDemo: false },
+      location: {
+        name: "Recorded branch",
+        address: "Address recorded for this inspection",
+      },
+    };
+    const doc = await PDFDocument.load(
+      await renderInspectionPdf(crossCompany, meta),
+    );
+    const first = decodedPages(doc)[0];
+    expect(first).toContain("COMPANY NAME: Keells");
+    expect(first).toContain(`SOURCE LIST COMPANY: ${MARML_SOURCE.companyName}`);
+    expect(first).toContain("Address recorded for this inspection");
+    expect(first).not.toContain(MARML_SOURCE.plantAddress);
+    const unclassified = marmlInspectionRows({
+      observations: [
+        {
+          product: {
+            name: "Saved product",
+            supplier: { name: "Unclassified supplier" },
+          },
+        },
+      ],
+    })[0].values;
+    expect(unclassified[6]).toBe("-");
+    expect(unclassified[7]).toBe("-");
+    expect(unclassified[8]).toBe("-");
+    expect(unclassified[9]).toBe("-");
+    expect(unclassified[12]).toContain(
+      "Supplier (type not recorded): Unclassified supplier",
     );
   });
 });

@@ -43,7 +43,7 @@ model Company {
   id                 String                        @id @default(cuid())
   legalName          String
   tradingName        String?
-  registrationNumber String                        @unique
+  registrationNumber String?                       @unique
   category           String                        @default("RETAILER")
   industry           String?
   email              String?
@@ -64,6 +64,7 @@ model Company {
   complaints         Complaint[]
   nonConformities    NonConformity[]
   correctiveActions  CorrectiveAction[]
+  rawMaterialListings RawMaterialListing[]
 
   @@index([legalName])
 }
@@ -152,9 +153,46 @@ model Product {
   observations   Observation[]
   investigations Investigation[]
   trainingImages TrainingImage[]
+  rawMaterialListing RawMaterialListing?
 
   @@unique([normalizedName, brandId, manufacturerId])
   @@index([status, name])
+}
+
+model RawMaterialListing {
+  id                      String   @id @default(cuid())
+  productId               String   @unique
+  sourceCompanyId         String
+  sourceCompanyName       String
+  sourceDocument          String
+  sourceMetadata          Json
+  sourceRow               Json
+  sourcePage              Int
+  rowNumber               Int
+  category                String
+  name                    String
+  insNumber               String?
+  physicalState           String?
+  brand                   String?
+  manufacturer            String?  @db.Text
+  localSupplier           String?  @db.Text
+  foreignSupplier         String?  @db.Text
+  certificateBody         String?
+  certificateExpiry       DateTime?
+  otherDocument           String?  @db.Text
+  refNo                   String?
+  remarks                 String?  @db.Text
+  transcriptionNotes      String?  @db.Text
+  transcriptionConfidence String   @default("REVIEW_REQUIRED")
+  reviewStatus            String   @default("SOURCE_LISTED_REQUIRES_REVIEW")
+  version                 Int      @default(1)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  product                 Product  @relation(fields: [productId], references: [id])
+  sourceCompany           Company  @relation(fields: [sourceCompanyId], references: [id])
+
+  @@unique([sourceDocument, rowNumber])
+  @@index([sourceCompanyId, certificateExpiry])
 }
 
 model ProductVariant {

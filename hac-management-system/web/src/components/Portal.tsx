@@ -45,6 +45,8 @@ import {
 } from "lucide-react";
 import TrainingStudio from "@/components/ai/TrainingStudio";
 import Scanner from "@/components/ai/Scanner";
+import WorkspaceSetup, { MaterialSourceDetails } from "./WorkspaceSetup";
+import StartInspectionButton, { canStartInspection } from "./StartInspection";
 import { api, array, date, label, Row } from "./client";
 import {
   unlockOfflineSession,
@@ -94,6 +96,7 @@ const navigation = [
     items: [
       ["ai/training", "AI training studio", Sparkles],
       ["users", "People & access", Users],
+      ["workspace-setup", "Workspace setup", Settings2],
       ["notifications", "Notifications", Bell],
       ["audit-logs", "Audit history", History],
       ["settings", "Settings", Settings2],
@@ -142,6 +145,7 @@ const titles: Record<string, string> = {
   notifications: "Notifications",
   "audit-logs": "Audit history",
   settings: "Workspace settings",
+  "workspace-setup": "Workspace setup",
   scanner: "Product scanner",
   "ai/training": "AI training studio",
 };
@@ -158,7 +162,7 @@ const descriptions: Record<string, string> = {
   companies: "Company records, locations and certification relationships.",
   items: "Central product identities, brands and exact packaging variants.",
   certificates: "Authoritative certification records and their approved scope.",
-  inspections: "Plan your visits. Record observations. Keep a complete trail.",
+  inspections: "Start a visit for your company, record observations, and download the inspection record.",
   investigations: "Resolve discrepancies with evidence and accountable review.",
   complaints: "Record concerns and follow their resolution.",
   "non-conformities": "Track findings, severity and required follow-up.",
@@ -282,6 +286,7 @@ export default function Portal({ route }: { route: string[] }) {
                     admin ||
                     ![
                       "users",
+                      "workspace-setup",
                       "ai/training",
                       "audit-logs",
                       "brands",
@@ -401,6 +406,8 @@ export default function Portal({ route }: { route: string[] }) {
             <Reports />
           ) : module === "settings" ? (
             <Settings user={user} />
+          ) : module === "workspace-setup" ? (
+            admin ? <WorkspaceSetup /> : <Empty title="Administrator access required" description="An HAC administrator manages company records, supervisor assignments and imported materials." />
           ) : endpoints[module] ? (
             <ResourcePage module={module} user={user} />
           ) : (
@@ -528,12 +535,7 @@ function Dashboard({ user }: { user: Row }) {
           <ArrowDownToLine size={17} />
           View reports
         </Link>
-        {!user.role.startsWith("COMPANY_") && (
-          <Link className="button primary" href="/inspections">
-            <Plus size={17} />
-            Plan an inspection
-          </Link>
-        )}
+        <StartInspectionButton role={user.role} />
       </PageHeading>
       <ErrorBox error={error} />
       {!data && !error ? (
@@ -852,7 +854,7 @@ const fieldConfig: Record<string, Field[]> = {
   companies: [
     { key: "legalName", title: "Legal company name", required: true },
     { key: "tradingName", title: "Trading name" },
-    { key: "registrationNumber", title: "Registration number", required: true },
+    { key: "registrationNumber", title: "Registration number (if known)" },
     {
       key: "category",
       title: "Company category",
@@ -1115,6 +1117,7 @@ const columnConfig: Record<string, [string, string][]> = {
     ["product", "Product"],
     ["brand.name", "Brand"],
     ["manufacturer.name", "Manufacturer"],
+    ["rawMaterialListing.certificateExpiry", "Source expiry"],
     ["type", "Type"],
     ["status", "Master status"],
   ],
@@ -1219,7 +1222,7 @@ function Cell({ row, path }: { row: Row; path: string }) {
     )
   )
     return value ? <Badge value={value} /> : <span>—</span>;
-  if (/At$/.test(path))
+  if (/At$/.test(path) || path.endsWith("certificateExpiry"))
     return <span className="nowrap">{date(value, path === "createdAt")}</span>;
   if (typeof value === "boolean") return value ? "Yes" : "No";
   return <span>{value == null ? "—" : String(value)}</span>;
@@ -1255,6 +1258,7 @@ function ResourcePage({ module, user }: { module: string; user: Row }) {
     (!user.role.startsWith("COMPANY_") ||
       ["complaints", "corrective-actions"].includes(module)) &&
     Boolean(fieldConfig[module]) &&
+    (module !== "inspections" || ["SUPER_ADMIN", "HAC_ADMIN"].includes(user.role)) &&
     (![
       "users",
       "companies",
@@ -1276,8 +1280,9 @@ function ResourcePage({ module, user }: { module: string; user: Row }) {
         title={titles[module]}
         description={descriptions[module]}
       >
+        {["inspections", "companies"].includes(module) && <StartInspectionButton role={user.role} />}
         {canCreate && (
-          <button className="button primary" onClick={() => setCreate(true)}>
+          <button className={`button ${module === "inspections" ? "secondary" : "primary"}`} onClick={() => setCreate(true)}>
             <Plus size={17} />
             {module === "inspections"
               ? "Schedule inspection"
@@ -1372,6 +1377,7 @@ function ResourcePage({ module, user }: { module: string; user: Row }) {
                       </td>
                     ))}
                     <td className="action-cell">
+                      {module === "companies" && canStartInspection(user.role) && <StartInspectionButton role={user.role} companyId={row.id} small />}
                       {module === "inspections" ? (
                         <Link
                           href={`/inspections/${row.id}`}
@@ -1789,6 +1795,8 @@ function DetailModal({
             </div>
           ))}
       </dl>
+      {module === "items" && row.rawMaterialListing && <MaterialSourceDetails material={row.rawMaterialListing} />}
+      {module === "companies" && <StartInspectionButton role={user.role} companyId={row.id} />}
       {module === "companies" &&
         ["SUPER_ADMIN", "HAC_ADMIN"].includes(user.role) && (
           <CompanyAssignment companyId={row.id} />

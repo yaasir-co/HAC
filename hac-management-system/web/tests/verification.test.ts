@@ -464,7 +464,7 @@ describe("authoritative HAC verification", () => {
   it("includes rule version, timestamp, actual, expected, and source references for explainability", () => {
     const result = verify({ observedBrand: "Brand B" });
     expect(result.evaluatedAt).toBe(at);
-    expect(result.ruleVersion).toBe("hac-verification/1.0.0");
+    expect(result.ruleVersion).toBe("hac-verification/1.1.0");
     expect(result.masterDataVersion).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(
       result.rules.find((rule) => rule.rule === "identity.brand"),
