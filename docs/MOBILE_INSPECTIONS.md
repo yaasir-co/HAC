@@ -7,12 +7,13 @@ Deploy this branch after merging it into the GitHub branch used by Hostinger. Se
 ## Supervisor flow
 
 1. Start or resume a company inspection. A checklist is optional; **No checklist — products only** is the default.
-2. The visit opens on **Products**. Catalogue items appear immediately. Type a name, brand, barcode or item code; matches update automatically. Earlier requests are cancelled when the query changes.
-3. Tap a product, check its exact identity/packaging, record notes or other observations, confirm the physical identity and save. Empty optional barcode/variant fields are omitted, so raw materials without packaging variants can be saved.
-4. Repeat for additional items. Use **Live scanner** for the camera, or **Product not listed?** to record a provisional identity for review.
-5. Record the inspector declaration and representative signature or absence reason, then use **Submit & export**. Unanswered checklist questions do not block submission. At least one saved observation and the declarations remain necessary. Saved reports retain the details recorded at submission.
+2. Type a product name, brand, barcode or item code; lightweight matches update automatically. Earlier requests are cancelled and failed requests expose Retry instead of loading indefinitely.
+3. Tap an item, then **Yes, add**. It is saved immediately; there is no second save form. Approval checks run on the server.
+4. **Scan items** opens the camera popup. Up to three product predictions appear over the preview. Tap a match and **Yes, add**; scanning continues. This requires a published product model.
+5. **Not in HAC list?** records a name and product/material type on this inspection only. It never creates a master catalogue product.
+6. **Finish inspection → Confirm & submit inspection** records the supervisor's authenticated confirmation. No uploaded/drawn signature or representative signature is mandatory. Then **Download inspection PDF**. At least one saved item is required.
 
-Use **Text size** in the header to enable larger text on a device. The setting is stored on that device/browser; it does not enlarge text on other phones. Normal text remains the default, with stronger contrast for all devices. Phone model names are not inferred from screen width: an A25 user can enable large text while a Redmi user retains normal size. Browser/OS zoom remains available. The compact visit summary can be expanded when needed.
+Use **Text size** in the header to enable larger text on a device. The setting is stored on that device/browser; it does not enlarge text on other phones. Normal text remains the default, with stronger contrast for all devices. Phone model names are not inferred from screen width: an A25 user can enable large text while a Redmi user retains normal size. Browser/OS zoom remains available.
 
 ## Administrator checklist editing
 
@@ -42,3 +43,13 @@ node --use-env-proxy --import tsx scripts/train-object-test.ts
 The preparation step checks the retained source hashes and stops if an image changed. Training verifies hashes again, extracts actual image features and writes the model, evaluation and attribution files. Review these files before committing a replacement. Python is not needed to install or run the deployed application.
 
 Observed validation: 249 unit tests, the production build, eight focused browser workflows, real TensorFlow image inference and a simulated camera stream backed by a held-out real photograph. The simulated stream verifies application camera/inference/cleanup integration; it does not test a physical phone camera. A disposable MySQL HTTP run verified migration, search, test-catalogue isolation, admin question revisions/removal, existing-version retention, submission with no checklist, submission with unanswered older required questions, and retained PDF downloads.
+
+## Administrator bulk training
+
+Open **AI training studio**, select/create a library and search for the product or raw material. Select 100+ JPEG/PNG/WebP photos at once (8 MB per image). Counts and independent-group totals are shown per item; previews are limited to the newest 24. Bulk progress shows saved/failed files, Stop and Retry unsuccessful photos. Uploaded images persist; an uncompleted browser file selection does not survive a reload. Re-select files after reload; duplicate files are rejected safely.
+
+Collect genuine packaging photographs with varied viewpoints, lighting and backgrounds, and also add **Unrelated / background photos**. Similar images are grouped to prevent leakage; at least three independent groups per class are necessary. Do not treat sequential nearly identical frames as independent test photos.
+
+Training saves progress in the database and extracts real TensorFlow features eight images per request. Keep the page open; reopen the library and **Resume training** after interruption. Libraries support up to 10,000 images. Finish uploads before training; changing the library invalidates an active job. Training-only diverse prototypes cap the published index at 24 vectors per product/variant/background class. Validation tunes parameters; held-out tests measure accuracy and background false identification. A failed model cannot be published. **Approve and publish** is a separate administrator action. No image count guarantees packaging accuracy; representative field validation is still necessary.
+
+See [Hostinger setup](HOSTINGER_SETUP.md#pdf-download-permission-errors-eacces) for private report storage recovery.

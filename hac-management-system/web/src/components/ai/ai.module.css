@@ -261,3 +261,17 @@
   .objectCandidate { flex-wrap: wrap; }
   .cameraActions > * { min-width: 0; flex: 1 1 130px; }
 }
+.cameraOnly .grid { grid-template-columns: minmax(0, 1fr); }
+.cameraOnly .grid > section + section { display: none; }
+.cameraOnly .panel { padding: 0; border: 0; }
+.cameraOnly .scanHeading { margin-bottom: 10px; }
+.cameraOnly .scanEyebrow { display: none; }
+.cameraOnly .video { height: min(65dvh, 700px); min-height: 350px; object-fit: cover; }
+.cameraOnly .cameraActions { padding: 10px 0; }
+.liveChoices { position: absolute; bottom: 12px; left: 12px; right: 12px; display: grid; gap: 7px; z-index: 2; }
+.liveChoices button { display: flex; gap: 10px; align-items: center; width: 100%; min-height: 54px; border: 1px solid #ffffff88; border-radius: 12px; padding: 10px 12px; background: #fffffff5; color: #111827; text-align: left; box-shadow: 0 3px 12px #0003; }
+.liveChoices button > span:nth-child(2) { flex: 1; min-width: 0; }
+.liveChoices strong { display: block; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere; }
+.liveChoices small { display: block; color: #374151; font-size: 12px; margin-top: 3px; }
+.predictionNumber { background: #17644f; color: white; width: 27px; height: 27px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; }
+.predictionCaption { background: #102b36e8; color: white; padding: 9px 12px; border-radius: 9px; font-size: 13px; }

@@ -56,3 +56,20 @@ A clean frozen-lockfile installation, real local setup/generation/migrations/see
 ## Publication/Windows portability follow-up
 
 The preserved implementation's unit suite passes 119 tests across 14 files after four regression cases for environment-default preservation, idempotence and Windows CRLF/exported bindings. `npm run typecheck` now runs `next typegen` before TypeScript so ignored generated declarations need not be committed. Integration npm commands use a cross-platform Node launcher; Windows browser tests use `npx.cmd playwright install chromium` unless an executable override is explicitly configured. See `docs/WINDOWS_SETUP.md`; native Windows execution remains unverified.
+
+## Simple mobile inspections and bulk training regression
+
+From `hac-management-system/web`, after `npm run build`, run:
+
+```sh
+npm test
+# Requires the existing local Docker MySQL service (defaults to web-mysql-1, localhost:3307).
+# Creates only a random ephemeral database/user and removes them in finally.
+HAC_ISOLATED_TESTS=1 node tests/simple-inspection.integration.mjs
+# Against a running local app:
+HAC_BASE_URL=http://localhost:3000 npx playwright test tests/e2e/mobile-inspection.spec.ts tests/e2e/product-training.spec.ts
+```
+
+The isolated HTTP regression exercises 10 companies/5 assigned supervisors/39 materials, lean search, inspection-only unknown items and idempotent retry, optional checklists, authenticated submission without a signature upload, and immutable downloadable PDFs under an intentionally unwritable primary storage directory. It uploads 105 synthetic noise images for one item and 7 background images, completes genuine TensorFlow extraction/evaluation in persisted batches, and verifies that the unsuitable model cannot pass publication. This verifies capacity and lifecycle, not field recognition accuracy. It requires outbound access to the official MobileNet model. Set `HAC_TEST_MYSQL_CONTAINER` to override the local Docker container name; the database port is 3307.
+
+`HAC_QUICK_CAMERA_TESTS=1 HAC_BASE_URL=http://localhost:3000 npx playwright test tests/e2e/quick-camera.spec.ts` additionally checks actual browser TensorFlow extraction from the local Chromium fake-camera stream, top-three overlay selection, one-confirmation saving and continuing inference. Prepare `.local/object-test/camera.y4m` as described by the object tests and cache the official `mobilenet_v1_0.25_224/model.json` with its relative weight shards in `.local/product-backbone`. API candidates in this UI regression are explicit fixtures; it does not claim prediction accuracy or physical-phone validation.

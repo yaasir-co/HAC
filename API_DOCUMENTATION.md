@@ -58,7 +58,7 @@ Additional administrator links:
 | GET | `/inspections/{id}` | Assigned visit, observations, questions/responses, findings, evidence and declarations |
 | POST | `/inspections/{id}/start` | Start a scheduled inspection; capture actual time and master-data marker |
 | POST | `/inspections/{id}/observations` | Save product/variant identity, physical observations and server-calculated verification |
-| POST | `/inspections/{id}/unknown` | Create a provisional product plus linked investigation; never certifies it |
+| POST | `/inspections/{id}/unknown` | Record an unlisted inspection-only observation and finding; never creates a master product |
 | POST | `/inspections/{id}/checklist` | `{questionId,answer,notes?}`; validates answer type and evidence references |
 | POST | `/inspections/{id}/reconcile` | `{version,acknowledge:true}` re-evaluates sources, audits changes and invalidates declarations |
 | POST | `/inspections/{id}/sign` | `{name,role,signature?,reason?}` with `INSPECTOR` or `COMPANY_REPRESENTATIVE` |
@@ -67,7 +67,14 @@ Additional administrator links:
 
 An observation requires `clientMutationId` (8–100 characters) and `conclusion`; accepted fields include `version`, `productId`, `variantId`, `observedName`, `observedBrand`, `observedManufacturer`, `observedBarcode`, `observedVariant`, `identityConfirmed`, `physicalExpiry`, `manufactureDate`, `batch`, `quantity`, `storageLocation`, `notes`, `overrideReason` and optional `recognitionPredictionId`. The prediction reference must belong to the acting inspector and this inspection; it can confirm only one observation. The saved snapshot retains the original prediction/model and accepted product. Reusing a mutation key with different content is rejected. Approval-like conclusions that contradict calculated issues require a recorded reason; they do not change certification records. Saved content changes invalidate prior declarations. Submitted observations cannot be edited through these handlers.
 
-`unknown` requires `name`, `description`, `reason` and optional brand/manufacturer/barcode/priority. It creates an unapproved provisional master record and investigation, not a completed physical observation. Record the subsequent observation separately.
+`unknown` requires `name`; accepts `kind` (`PRODUCT`/`RAW_MATERIAL`), `clientMutationId` and optional observed brand/manufacturer/barcode/description/reason. It returns `{observation,catalogueChanged:false}`. The observation has no master product link. Reusing a mutation key with different content is rejected.
+
+`submit` still requires `{version,declaration:true}`. The assigned supervisor may confirm electronically without a drawn signature; a representative signature is optional. An administrator cannot create an inspector declaration on another user's behalf. Authoritative-source reconciliation and snapshot immutability remain enforced.
+
+`GET /catalogue-search?q=...` returns at most 12 lightweight master product matches, or one by `id`. `GET /inspections/{id}/mobile` returns a company-scoped compact workspace and saved results.
+
+Administrator-only `GET /ai/training-library?datasetId=...&productId=...` returns per-item image/group counts and the latest 24 private previews. `GET /ai/training-jobs?datasetId=...` returns job metadata. `POST /ai/training-jobs` accepts `{action:"start",datasetId}`, `{action:"step",modelId}` or `{action:"cancel",modelId}`. Steps have a compare-and-swap lease, reuse cached real embeddings and persist progress. Training uses independent grouped partitions and training-only bounded prototypes; publication remains the existing explicit quality-gated administrator endpoint.
+
 
 ## Cases and controlled transitions
 

@@ -3,15 +3,16 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { ApiError } from "./errors";
+import {
+  privateStorageRoot,
+  fallbackStorageRoot,
+  writablePrivateDirectory,
+  permissionError,
+} from "./private-storage";
+export { privateStorageRoot } from "./private-storage";
 
 export const MAX_EVIDENCE_BYTES = 8 * 1024 * 1024;
 const MAX_PIXELS = 32_000_000;
-export const privateStorageRoot = () =>
-  path.resolve(
-    /* turbopackIgnore: true */ process.env.HAC_STORAGE_PATH ||
-      path.join(process.cwd(), ".local", "storage"),
-  );
-
 /** Only opaque, server-created storage keys are accepted. Never resolve user filenames. */
 export function storagePath(key: string): string {
   if (!/^(evidence|reports)\/[a-zA-Z0-9-]+\.(jpg|png|pdf|xlsx)$/.test(key)) {
@@ -109,8 +110,11 @@ export async function storePrivateFile(
   bytes: Uint8Array,
 ): Promise<string> {
   const key = `${category}/${randomUUID()}.${extension}`;
-  const destination = storagePath(key);
-  await mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+  storagePath(key); // Validate the opaque key before choosing a private directory.
+  const destination = path.join(
+    await writablePrivateDirectory(category),
+    path.basename(key),
+  );
   const temporary = `${destination}.tmp`;
   try {
     await writeFile(temporary, bytes, { flag: "wx", mode: 0o600 });
@@ -121,9 +125,38 @@ export async function storePrivateFile(
   }
   return key;
 }
-export const readPrivateFile = (key: string) =>
-  readFile(/* turbopackIgnore: true */ storagePath(key));
-export const deletePrivateFile = (key: string) =>
-  unlink(storagePath(key)).catch(() => undefined);
+export async function readPrivateFile(key: string) {
+  const primary = storagePath(key),
+    fallback = path.join(fallbackStorageRoot(), key);
+  for (const filename of [...new Set([primary, fallback])]) {
+    try {
+      return await readFile(/* turbopackIgnore: true */ filename);
+    } catch (error) {
+      if (
+        !permissionError(error) &&
+        !(
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "ENOENT"
+        )
+      )
+        throw error;
+    }
+  }
+  throw new ApiError(
+    503,
+    "PRIVATE_FILE_UNAVAILABLE",
+    "The retained private file is unavailable. Check private storage or restore it from backup.",
+  );
+}
+export async function deletePrivateFile(key: string) {
+  const primary = storagePath(key);
+  await Promise.all(
+    [...new Set([primary, path.join(fallbackStorageRoot(), key)])].map(
+      (filename) => unlink(filename).catch(() => undefined),
+    ),
+  );
+}
 export const sha256 = (bytes: Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");

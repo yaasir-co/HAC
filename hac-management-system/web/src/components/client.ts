@@ -3,29 +3,64 @@ export async function api<T = any>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const result = await fetch(`/api/v1${path}`, {
-    credentials: "same-origin",
-    ...init,
-    headers: {
-      ...(init?.body instanceof FormData
-        ? {}
-        : { "Content-Type": "application/json" }),
-      ...init?.headers,
+  const controller = new AbortController();
+  const upstream = init?.signal;
+  let timedOut = false;
+  const abort = () => controller.abort();
+  if (upstream?.aborted) controller.abort();
+  else upstream?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(
+    () => {
+      timedOut = true;
+      controller.abort();
     },
-  });
-  if (result.status === 401 && !path.startsWith("/auth/login")) {
-    window.location.href = "/login";
-    throw new Error("Please sign in to continue.");
+    !init?.method || init.method === "GET" ? 12000 : 45000,
+  );
+  try {
+    const result = await fetch(`/api/v1${path}`, {
+      credentials: "same-origin",
+      ...init,
+      signal: controller.signal,
+      headers: {
+        ...(init?.body instanceof FormData
+          ? {}
+          : { "Content-Type": "application/json" }),
+        ...init?.headers,
+      },
+    });
+    if (result.status === 401 && !path.startsWith("/auth/login")) {
+      window.location.href = "/login";
+      throw Object.assign(new Error("Please sign in to continue."), {
+        status: 401,
+        code: "UNAUTHENTICATED",
+      });
+    }
+    const body = await result
+      .json()
+      .catch(() => ({
+        error: { message: "The server could not complete the request." },
+      }));
+    if (!result.ok)
+      throw Object.assign(
+        new Error(body.error?.message ?? `Request failed (${result.status}).`),
+        { status: result.status, code: body.error?.code },
+      );
+    return body.data ?? body;
+  } catch (error) {
+    if (timedOut)
+      throw Object.assign(
+        new Error(
+          "The connection is taking too long. Check your connection and retry.",
+        ),
+        { code: "REQUEST_TIMEOUT" },
+      );
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    upstream?.removeEventListener("abort", abort);
   }
-  const body = await result.json().catch(() => ({
-    error: { message: "The server could not complete the request." },
-  }));
-  if (!result.ok)
-    throw new Error(
-      body.error?.message ?? `Request failed (${result.status}).`,
-    );
-  return body.data ?? body;
 }
+
 export function date(value: unknown, time = false) {
   if (!value) return "—";
   const d = new Date(String(value));

@@ -100,3 +100,13 @@ If build-time database access is unavailable, use this supported private adminis
 | Manual administrator creation refused because users exist | Use the existing account; this command is not password recovery |
 
 Share only sanitized error categories when asking for help, never environment values, complete connection URIs or passwords. See [deployment and recovery](../DEPLOYMENT.md) for database privileges, backups and remaining production requirements.
+
+## PDF download permission errors (`EACCES`)
+
+`EACCES` during report generation indicates a private filesystem permission problem, not an incorrect supervisor password. The database username is not necessarily the hosting account's filesystem username; do not construct `/home/...` from the database username.
+
+This update tries the configured `HAC_STORAGE_PATH` first. On `EACCES`, `EPERM` or a read-only filesystem, it uses persistent storage under the running OS user's home: `~/.hac-private/<database-host-and-name-hash>/`. It stores evidence/reports with opaque filenames, private permissions and the same database file keys. Training uploads also use the fallback if `UPLOAD_DIR/ai` is unwritable. It never substitutes temporary `/tmp` storage or places files in `public_html`.
+
+Prefer setting `HAC_STORAGE_PATH` and `UPLOAD_DIR` to persistent directories actually owned/writable by the Node application user. Optionally set `HAC_STORAGE_FALLBACK_PATH` to another owned persistent **private** directory. Never use `chmod 777`. If both locations are unwritable, the response is `STORAGE_NOT_WRITABLE`; Hostinger must supply an owned persistent directory. Persistence of the user's home across deployments must be confirmed with Hostinger. Back up both primary and fallback roots and the upload directory alongside the database.
+
+Existing files are read from either root and their hashes are verified. An already retained report that exists only in an inaccessible or deleted directory requires restoring/moving the original artifact to the matching private key; the system does not silently replace immutable reports. Redeploy the latest GitHub source after merging the implementation PR; restoring a previous deployment source will not include these changes. Keep the build command **npm run build**. This update introduces no additional database migration; the earlier optional-checklist migration must already be applied.

@@ -5,7 +5,7 @@ import { ChevronRight, LoaderCircle, Package, Search, X } from "lucide-react";
 import { api, array, type Row } from "./client";
 
 export default function LiveProductSearch({ select, initialQuery = "" }: {
-  select: (id: string, variantId?: string) => void;
+  select: (id: string, variantId?: string, product?: Row) => void;
   initialQuery?: string;
 }) {
   const [query, setQuery] = useState(initialQuery);
@@ -23,7 +23,7 @@ export default function LiveProductSearch({ select, initialQuery = "" }: {
     setRows([]);
     const timer = setTimeout(async () => {
       try {
-        const response = await api(`/products?q=${encodeURIComponent(query.trim())}&pageSize=16`, { signal: controller.signal });
+        const response = await api(`/catalogue-search?q=${encodeURIComponent(query.trim())}`, { signal: controller.signal });
         if (!controller.signal.aborted) setRows(array(response));
       } catch (failure) {
         if (!controller.signal.aborted) setError((failure as Error).message);
@@ -34,7 +34,7 @@ export default function LiveProductSearch({ select, initialQuery = "" }: {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [query, revision]);
   return <section className="live-product-search" aria-label="Find a catalogue product">
-    <div className="panel-heading"><div><h2>Find and add a product</h2><p>Type a name, brand, item code or barcode. Tap a result to record it.</p></div></div>
+    <div className="panel-heading"><div><h2>Find and add a product</h2><p>Type a name, brand, item code or barcode. Tap an item, then confirm Add.</p></div></div>
     <form className="inline-search" onSubmit={event => { event.preventDefault(); setRevision(value => value + 1); }}>
       <div className="search-field">
         <Search size={20} aria-hidden="true" />
@@ -50,7 +50,7 @@ export default function LiveProductSearch({ select, initialQuery = "" }: {
     {error && <div role="alert" className="alert error">{error}<button type="button" className="button secondary" onClick={() => setRevision(value => value + 1)}>Retry search</button></div>}
     <ul id="live-product-results" ref={results} className="product-search-grid" aria-label="Matching products" aria-busy={busy}>
       {rows.map(product => <li key={product.id}><button type="button" className="search-product"
-        onClick={() => select(product.id, product.variants?.length === 1 ? product.variants[0].id : undefined)}>
+        onClick={() => select(product.id, product.variants?.length === 1 ? product.variants[0].id : undefined, product)}>
         <span className="product-tile-icon"><Package size={25} /></span>
         <span className="search-product-copy"><strong>{product.name}</strong><small>{product.brand?.name || "Brand not recorded"} · {product.itemCode}</small>
           <span>{product.variants?.length === 1 ? product.variants[0].name : product.variants?.length > 1 ? "Choose the exact packaging after selecting" : "Raw material / unpackaged item"}</span></span>

@@ -1,0 +1,691 @@
+"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import {
+  Check,
+  Download,
+  LoaderCircle,
+  Package,
+  Plus,
+  ScanLine,
+} from "lucide-react";
+import { api, type Row } from "./client";
+import LiveProductSearch from "./LiveProductSearch";
+import WorkspaceDialog from "./WorkspaceDialog";
+import Scanner from "./ai/Scanner";
+
+type Choice = {
+  product?: Row;
+  productId?: string;
+  variantId?: string;
+  predictionId?: string;
+  name: string;
+  kind: "PRODUCT" | "RAW_MATERIAL";
+  key: string;
+};
+const isMaterial = (row: Row) =>
+  row.product?.type === "RAW_MATERIAL" ||
+  row.conclusion === "UNLISTED_RAW_MATERIAL";
+export default function SimpleInspection({
+  id,
+  user,
+}: {
+  id: string;
+  user: Row;
+}) {
+  const [inspection, setInspection] = useState<Row | null>(null),
+    [error, setError] = useState("");
+  const [camera, setCamera] = useState(false),
+    [manual, setManual] = useState(false),
+    [finishing, setFinishing] = useState(false);
+  const [choice, setChoice] = useState<Choice | null>(null),
+    [saving, setSaving] = useState(false),
+    [notice, setNotice] = useState("");
+  const [name, setName] = useState(""),
+    [kind, setKind] = useState<"PRODUCT" | "RAW_MATERIAL">("PRODUCT"),
+    [filter, setFilter] = useState("ALL");
+  const [needsRefresh, setNeedsRefresh] = useState(false);
+  const resolver = useRef<(() => void) | null>(null),
+    choosing = useRef(false),
+    manualKey = useRef(crypto.randomUUID());
+  const load = useCallback(async () => {
+    try {
+      const data = await api(`/inspections/${id}/mobile`);
+      setInspection(data);
+      setError("");
+      return data;
+    } catch (failure) {
+      setError((failure as Error).message);
+      return null;
+    }
+  }, [id]);
+  useEffect(() => {
+    void load();
+    return () => {
+      resolver.current?.();
+    };
+  }, [load]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 3500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  const choose = useCallback(
+    async (
+      productId: string,
+      variantId?: string,
+      predictionId?: string,
+      product?: Row,
+    ) => {
+      if (choosing.current) return;
+      choosing.current = true;
+      setError("");
+      try {
+        const selected =
+          product ??
+          (
+            await api<Row[]>(
+              `/catalogue-search?id=${encodeURIComponent(productId)}`,
+            )
+          )[0];
+        if (!selected)
+          throw new Error("This product is no longer available. Search again.");
+        await new Promise<void>((resolve) => {
+          resolver.current = resolve;
+          setChoice({
+            product: selected,
+            productId,
+            variantId,
+            predictionId,
+            name: selected.name,
+            kind: selected.type === "RAW_MATERIAL" ? "RAW_MATERIAL" : "PRODUCT",
+            key: crypto.randomUUID(),
+          });
+        });
+      } catch (failure) {
+        setError((failure as Error).message);
+      } finally {
+        choosing.current = false;
+      }
+    },
+    [],
+  );
+  function closeChoice() {
+    if (saving) return;
+    setChoice(null);
+    resolver.current?.();
+    resolver.current = null;
+    choosing.current = false;
+  }
+  async function add(selected: Choice) {
+    setSaving(true);
+    setError("");
+    try {
+      const path = `/inspections/${id}/${selected.productId ? "observations" : "unknown"}`;
+      const payload = selected.productId
+        ? {
+            productId: selected.productId,
+            variantId: selected.variantId,
+            recognitionPredictionId: selected.predictionId,
+            identityConfirmed: true,
+            conclusion: "OBSERVED",
+            clientMutationId: selected.key,
+          }
+        : {
+            name: selected.name,
+            kind: selected.kind,
+            clientMutationId: selected.key,
+          };
+      let result: Row;
+      try {
+        result = await api(path, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      } catch (failure) {
+        if ((failure as Row).code !== "VERSION_CONFLICT") throw failure;
+        await load();
+        result = await api(path, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      const row = result.observation ?? result;
+      setInspection(
+        (current) =>
+          current && {
+            ...current,
+            version:
+              current.version +
+              (current.observations.some((item: Row) => item.id === row.id)
+                ? 0
+                : 1),
+            observations: [
+              {
+                ...row,
+                product: selected.product ?? null,
+                observedName: row.observedName || selected.name,
+              },
+              ...current.observations.filter((item: Row) => item.id !== row.id),
+            ],
+          },
+      );
+      setNotice(`${selected.name} added`);
+      setChoice(null);
+      setManual(false);
+      setName("");
+      manualKey.current = crypto.randomUUID();
+      resolver.current?.();
+      resolver.current = null;
+      choosing.current = false;
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function downloadPdf() {
+    setSaving(true);
+    setError("");
+    const controller = new AbortController(),
+      timer = setTimeout(() => controller.abort(), 60000);
+    try {
+      const response = await fetch(`/api/v1/reports/${id}?format=pdf`, {
+        credentials: "same-origin",
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(
+          body?.error?.message ||
+            "Could not download the report. Please retry.",
+        );
+      }
+      if (!response.headers.get("content-type")?.includes("application/pdf"))
+        throw new Error("Please sign in again to download this report.");
+      const url = URL.createObjectURL(await response.blob()),
+        link = document.createElement("a");
+      link.href = url;
+      link.download = `${inspection?.reference || "inspection"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (failure) {
+      setError(
+        (failure as Error).name === "AbortError"
+          ? "The PDF is taking too long. Please retry."
+          : (failure as Error).message,
+      );
+    } finally {
+      clearTimeout(timer);
+      setSaving(false);
+    }
+  }
+  async function submit() {
+    setSaving(true);
+    setError("");
+    try {
+      const latest = await load();
+      if (!latest) return;
+      await api(`/inspections/${id}/submit`, {
+        method: "POST",
+        body: JSON.stringify({ version: latest.version, declaration: true }),
+      });
+      await load();
+      setFinishing(false);
+      setNotice("Inspection submitted. Your PDF is ready.");
+    } catch (failure) {
+      setError((failure as Error).message);
+      if ((failure as Row).code === "REVALIDATION_REQUIRED")
+        setNeedsRefresh(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function refreshChecks() {
+    setSaving(true);
+    setError("");
+    try {
+      const latest = await load();
+      if (!latest) return;
+      await api(`/inspections/${id}/reconcile`, {
+        method: "POST",
+        body: JSON.stringify({ version: latest.version, acknowledge: true }),
+      });
+      await load();
+      setNeedsRefresh(false);
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+  if (!inspection)
+    return (
+      <section className="panel simple-loading">
+        <LoaderCircle size={24} className={error ? "" : "spin"} />
+        <h1>
+          {error ? "Could not open the inspection" : "Opening inspection…"}
+        </h1>
+        {error && (
+          <>
+            <p role="alert">{error}</p>
+            <button className="button primary" onClick={() => void load()}>
+              Retry
+            </button>
+          </>
+        )}
+        <Link href="/inspections">Back to inspections</Link>
+      </section>
+    );
+  const rows: Row[] = inspection.observations,
+    materials = rows.filter(isMaterial),
+    completed = !["SCHEDULED", "IN_PROGRESS", "DRAFT"].includes(
+      inspection.status,
+    );
+  const editable =
+    inspection.status === "IN_PROGRESS" && inspection.inspectorId === user.id;
+  const visible =
+    filter === "ALL"
+      ? rows
+      : rows.filter((row) =>
+          filter === "MATERIAL" ? isMaterial(row) : !isMaterial(row),
+        );
+  const confirm = choice && (
+    <QuickConfirm
+      choice={choice}
+      saving={saving}
+      error={error}
+      cancel={closeChoice}
+      add={() => void add(choice)}
+    />
+  );
+  return (
+    <div className="simple-inspection">
+      <Link className="back-link" href="/inspections">
+        ← Inspections
+      </Link>
+      <div className="simple-heading">
+        <div>
+          <span className="eyebrow">{inspection.reference}</span>
+          <h1>
+            {inspection.company.tradingName || inspection.company.legalName}
+          </h1>
+          <p>{inspection.location.name}</p>
+        </div>
+        <span className="simple-count">
+          {rows.length}
+          <small>inspected</small>
+        </span>
+      </div>
+      {error && !choice && !manual && !finishing && (
+        <div className="alert error" role="alert">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="simple-toast" role="status">
+          <Check size={18} />
+          {notice}
+        </div>
+      )}
+      {completed ? (
+        <section className="panel simple-completed">
+          <Check size={36} />
+          <h2>Inspection submitted</h2>
+          <p>{rows.length} items saved to this visit.</p>
+          <button
+            className="button primary"
+            disabled={saving}
+            onClick={() => void downloadPdf()}
+          >
+            <Download size={19} />
+            {saving ? "Preparing PDF…" : "Download inspection PDF"}
+          </button>
+        </section>
+      ) : editable ? (
+        <>
+          <div className="simple-actions">
+            <button
+              className="button primary"
+              onClick={() => {
+                setCamera(true);
+                setError("");
+              }}
+            >
+              <ScanLine size={22} />
+              Scan items
+            </button>
+            <button
+              className="button secondary"
+              onClick={() => {
+                setManual(true);
+                setError("");
+              }}
+            >
+              <Plus size={20} />
+              Not in HAC list?
+            </button>
+          </div>
+          <section className="panel">
+            <LiveProductSearch
+              select={(pid, vid, product) => {
+                void choose(pid, vid, undefined, product);
+              }}
+            />
+          </section>
+        </>
+      ) : !completed && inspection.inspectorId === user.id ? (
+        <button
+          className="button primary"
+          disabled={saving}
+          onClick={async () => {
+            setSaving(true);
+            try {
+              await api(`/inspections/${id}/start`, { method: "POST" });
+              await load();
+            } catch (failure) {
+              setError((failure as Error).message);
+            } finally {
+              setSaving(false);
+            }
+          }}
+        >
+          Start this visit
+        </button>
+      ) : (
+        <p>This visit belongs to another inspector.</p>
+      )}
+      <section className="panel simple-saved">
+        <div className="panel-heading">
+          <h2>Inspected items</h2>
+          <span>{rows.length} saved</span>
+        </div>
+        <div className="simple-filters" aria-label="Inspected item type">
+          {[
+            ["ALL", `All (${rows.length})`],
+            ["PRODUCT", `Products (${rows.length - materials.length})`],
+            ["MATERIAL", `Materials (${materials.length})`],
+          ].map(([value, title]) => (
+            <button
+              key={value}
+              aria-pressed={filter === value}
+              onClick={() => setFilter(value)}
+            >
+              {title}
+            </button>
+          ))}
+        </div>
+        {!visible.length ? (
+          <div className="simple-empty">
+            <Package size={32} />
+            <p>
+              {rows.length
+                ? "No items of this type yet."
+                : "Scan or search to add your first item."}
+            </p>
+          </div>
+        ) : (
+          <ul className="simple-item-list">
+            {visible.map((row) => (
+              <li key={row.id}>
+                <span className="simple-item-icon">
+                  <Package size={22} />
+                </span>
+                <div>
+                  <strong>{row.product?.name || row.observedName}</strong>
+                  <small>
+                    {isMaterial(row) ? "Material" : "Product"}
+                    {!row.productId ? " · Not in HAC list" : ""}
+                  </small>
+                  <span
+                    className={`simple-result ${row.verification?.primaryStatus === "VERIFIED_APPROVED" ? "approved" : "review"}`}
+                  >
+                    {row.verification?.label ||
+                      "Recorded — requires HAC review"}
+                  </span>
+                </div>
+                <Check size={18} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {editable && (
+        <div className="simple-finish-bar">
+          <button
+            className="button primary"
+            disabled={!rows.length || saving || !!choice}
+            onClick={async () => {
+              setFinishing(true);
+              setError("");
+              await load();
+            }}
+          >
+            Finish inspection · {rows.length} items
+          </button>
+        </div>
+      )}
+      {camera && (
+        <WorkspaceDialog
+          title="Scan and add items"
+          wide
+          close={() => {
+            if (saving) return;
+            closeChoice();
+            setCamera(false);
+          }}
+        >
+          <div className="inspection-camera">
+            <Scanner
+              inspectionId={id}
+              onSelect={() => {}}
+              onQuickSelect={choose}
+              cameraOnly
+            />
+            {confirm}
+          </div>
+        </WorkspaceDialog>
+      )}
+      {!camera && confirm}
+      {manual && (
+        <WorkspaceDialog
+          title="Add an unlisted item"
+          close={() => {
+            if (!saving) setManual(false);
+          }}
+        >
+          <form
+            className="form-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (name.trim())
+                void add({ name: name.trim(), kind, key: manualKey.current });
+            }}
+          >
+            <p>This item will be saved on this inspection only.</p>
+            <label>
+              Item name
+              <input
+                autoFocus
+                required
+                maxLength={300}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </label>
+            <div className="simple-filters">
+              <button
+                type="button"
+                aria-pressed={kind === "PRODUCT"}
+                onClick={() => setKind("PRODUCT")}
+              >
+                Product
+              </button>
+              <button
+                type="button"
+                aria-pressed={kind === "RAW_MATERIAL"}
+                onClick={() => setKind("RAW_MATERIAL")}
+              >
+                Raw material
+              </button>
+            </div>
+            {error && (
+              <div className="alert error" role="alert">
+                {error}
+              </div>
+            )}
+            <button
+              className="button primary"
+              disabled={saving || !name.trim()}
+            >
+              {saving ? "Adding…" : "Add to inspected list"}
+            </button>
+          </form>
+        </WorkspaceDialog>
+      )}
+      {finishing && (
+        <WorkspaceDialog
+          title="Submit this inspection?"
+          close={() => {
+            if (!saving) setFinishing(false);
+          }}
+        >
+          <div className="form-stack">
+            <h2>{rows.length} inspected items</h2>
+            <p>
+              Submitting as <strong>{user.name}</strong>. By submitting, you
+              confirm that these saved items accurately reflect your inspection.
+            </p>
+            <p>
+              Approval checks are recorded automatically. A representative
+              signature and checklist are optional.
+            </p>
+            {error && (
+              <div className="alert error" role="alert">
+                {error}
+              </div>
+            )}
+            {needsRefresh ? (
+              <button
+                className="button primary"
+                disabled={saving}
+                onClick={() => void refreshChecks()}
+              >
+                Refresh approval checks
+              </button>
+            ) : (
+              <button
+                className="button primary"
+                disabled={saving}
+                onClick={() => void submit()}
+              >
+                {saving ? "Submitting…" : "Confirm & submit inspection"}
+              </button>
+            )}
+            <button
+              className="button secondary"
+              disabled={saving}
+              onClick={() => setFinishing(false)}
+            >
+              Keep inspecting
+            </button>
+          </div>
+        </WorkspaceDialog>
+      )}
+    </div>
+  );
+}
+function QuickConfirm({
+  choice,
+  saving,
+  error,
+  cancel,
+  add,
+}: {
+  choice: Choice;
+  saving: boolean;
+  error: string;
+  cancel: () => void;
+  add: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+  return (
+    <div className="quick-confirm-backdrop">
+      <div
+        className="quick-confirm"
+        role="alertdialog"
+        aria-modal="true"
+        aria-label="Add to inspected list?"
+        tabIndex={-1}
+        ref={ref}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            cancel();
+          }
+          if (event.key === "Tab") {
+            event.stopPropagation();
+            const controls = [
+              ...(ref.current?.querySelectorAll<HTMLButtonElement>(
+                "button:not([disabled])",
+              ) ?? []),
+            ];
+            const first = controls[0],
+              last = controls.at(-1);
+            if (!first) {
+              event.preventDefault();
+              return;
+            }
+            if (
+              event.shiftKey &&
+              (document.activeElement === first ||
+                document.activeElement === ref.current)
+            ) {
+              event.preventDefault();
+              last?.focus();
+            } else if (
+              !event.shiftKey &&
+              (document.activeElement === last ||
+                document.activeElement === ref.current)
+            ) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        }}
+      >
+        <h2>
+          Add to inspected{" "}
+          {choice.kind === "RAW_MATERIAL" ? "materials" : "products"}?
+        </h2>
+        <strong>{choice.name}</strong>
+        <p>
+          Confirm this is the item you see. HAC approval is checked
+          automatically.
+        </p>
+        {error && (
+          <div className="alert error" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="quick-confirm-actions">
+          <button
+            className="button secondary"
+            disabled={saving}
+            onClick={cancel}
+          >
+            No
+          </button>
+          <button className="button primary" disabled={saving} onClick={add}>
+            {saving ? "Adding…" : "Yes, add"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
