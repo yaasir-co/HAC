@@ -60,7 +60,7 @@ export default function PwaRegistration() {
   if (!show || installed) return null;
   return (
     <aside className="install-hac" role="dialog" aria-label="Install HAC app">
-      <img src="/branding/hac-app-192.png" alt="HAC halal app icon" />
+      <img src="/branding/hac-original-v4-192.png" alt="HAC halal app icon" />
       <div>
         <h2>Install HAC on this device</h2>
         <p>Open inspections directly from your home screen.</p>

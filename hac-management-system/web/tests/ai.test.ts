@@ -152,3 +152,8 @@ describe("real embedding index business rules (deterministic vectors, not image 
     expect(hamming("0", "10")).toBe(Infinity);
   });
 });
+
+it("offers up to ten distinct products while keeping default evaluation top-three",()=>{
+  const samples=Array.from({length:12},(_,i)=>({id:`sample-${i}`,productId:`product-${i}`,captureGroup:`group-${i}`,embedding:normalize([1,i/50])}));const artifact=createArtifact([...samples,{...samples[0],id:"variant",variantId:"second"}]);
+  expect(rank([1,0],artifact).candidates).toHaveLength(3);const candidates=rank([1,0],artifact,10,true).candidates;expect(candidates).toHaveLength(10);expect(new Set(candidates.map(row=>row.productId)).size).toBe(10);
+});

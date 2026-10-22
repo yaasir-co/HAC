@@ -111,3 +111,12 @@ Explicit `modelVersionId` testing is administrator-only. Recognition does not ap
 - Catalogue/search, mobile inspection and prediction responses include `imageUrl` when present. List searches load lean product metadata and only the raw-material expiry summary, not full certificate/source histories.
 - `POST /inspections/{id}/unknown` now requires multipart form data: `file`, `name`, `brandName`, `kind`, `clientMutationId`; optional `manufacturerName`, `barcode`, `batch`, `quantity`, `physicalExpiry` (YYYY-MM-DD), `description`. Photo and inspection-only observation commit atomically. JSON-only requests receive `PHOTO_REQUIRED`.
 - `/observations` requires an existing `productId`; use `/unknown` for photographed unlisted records. `ALREADY_INSPECTED` rejects a duplicate product identity across variants/mutation keys. A database unique index also protects concurrent inserts. Exact retry keys retain the existing idempotency checks.
+
+### Mobile review and scanner update
+
+- `POST /inspections/{id}/remove-item`: `{observationId,version}`; assigned supervisor/admin, draft only. Uses optimistic version locking, clears signatures and retains formal cases/audit references. Submitted inspections cannot be edited.
+- Signing accepts the current inspection `version`; a stale version is rejected. A genuine drawn signature is optional for submission.
+- `POST /ai/capture`: authenticated inspector/admin multipart `file` (JPEG/PNG/WebP, max 8 MB), optional `inspectionId` and `modelVersionId`. Validates image bytes and dimensions; extracts real features and optionally suppresses a reliable foreground background. Returns persisted recognition metadata, candidates, guidance and processing flags. Raw frames are transient. Explicit model versions are administrator-only.
+- `/ai/predict` and `/ai/capture` return up to ten distinct products at similarity >=0.75. Recognition remains human-confirmed and does not grant approval.
+- `/ai/scan-test` returns authenticated HTTP 410 `FEATURE_REMOVED`; no catalogue seeding is performed.
+- Catalogue search uses parameterised SQL with bounded pagination and company scoping. Missing optional display/source-summary tables do not hide product identities. Wrapped Prisma P2039/P2010 errors return a safe `DATABASE_QUERY_FAILED` response and log structured driver codes without query text or credentials.

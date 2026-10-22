@@ -49,6 +49,25 @@ async function mockInspection(page: Page) {
       inspection.observations = [{ id: "observation-1", ...saved, product }];
       data = inspection.observations[0];
       inspection.version++;
+    } else if (path.endsWith("/inspections/mobile-visit/remove-item")) {
+      const input = request.postDataJSON();
+      inspection.observations = inspection.observations.filter(
+        (row: any) => row.id !== input.observationId,
+      );
+      inspection.version++;
+      data = { removed: true };
+    } else if (path.endsWith("/inspections/mobile-visit/sign")) {
+      const input = request.postDataJSON();
+      (inspection as any).signatures = [
+        {
+          id: "signed",
+          name: input.name,
+          role: input.role,
+          hasSignature: true,
+        },
+      ];
+      inspection.version++;
+      data = { id: "signed" };
     } else if (path.endsWith("/inspections/mobile-visit/submit")) {
       inspection.status = "SUBMITTED";
       inspection.version++;
@@ -330,7 +349,7 @@ test("supervisor submits without a signature screen and downloads PDF", async ({
     .getByRole("alertdialog")
     .getByRole("button", { name: "Yes, add", exact: true })
     .click();
-  await page.getByRole("button", { name: /Finish inspection/ }).click();
+  await page.getByRole("button", { name: /Review inspection/ }).click();
   await page
     .getByRole("button", { name: "Confirm & submit inspection", exact: true })
     .click();
@@ -389,4 +408,64 @@ test("already inspected product is disabled instead of allowing repeat adds", as
   ).toBeDisabled();
   await expect(page.locator(".simple-item-list li")).toHaveCount(1);
   expect(state.saved()?.productId).toBe(product.id);
+});
+
+test("supervisor reviews, draws an optional signature and removes an item before submission", async ({
+  page,
+}) => {
+  await mockInspection(page);
+  await page.goto("/inspections/mobile-visit");
+  await page.getByRole("button", { name: /Chicken Boneless Meat/ }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Yes, add", exact: true })
+    .click();
+  await page.getByRole("button", { name: /Review inspection ·/ }).click();
+  const review = page.getByRole("dialog", {
+    name: "Review inspection",
+    exact: true,
+  });
+  await expect(review.locator(".review-item-list")).toContainText(
+    "Chicken Boneless Meat",
+  );
+  await review.getByText("Add signature (optional)", { exact: true }).click();
+  const canvas = review.getByLabel("Draw optional signature", { exact: true }),
+    box = (await canvas.boundingBox())!;
+  await page.mouse.move(box.x + 30, box.y + 40);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 90, box.y + 85, { steps: 8 });
+  await page.mouse.up();
+  await review
+    .getByRole("button", { name: "Save optional signature", exact: true })
+    .click();
+  await expect(review.getByText(/Signature saved/)).toBeVisible();
+  await review
+    .getByRole("button", { name: "Remove Chicken Boneless Meat", exact: true })
+    .click();
+  await review
+    .getByRole("button", { name: "Yes, remove", exact: true })
+    .click();
+  await expect(review.locator(".review-item-list li")).toHaveCount(0);
+  await expect(
+    review.getByRole("button", {
+      name: "Confirm & submit inspection",
+      exact: true,
+    }),
+  ).toBeDisabled();
+});
+test("mobile navigation labels have dark readable text", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 852 });
+  await mockInspection(page);
+  await page.goto("/inspections/mobile-visit");
+  await page
+    .getByRole("button", { name: "Open navigation", exact: true })
+    .click();
+  const link = page.locator(".sidebar.open .nav-item").first();
+  await expect(link).toBeVisible();
+  expect(await link.evaluate((el) => getComputedStyle(el).color)).toBe(
+    "rgb(21, 45, 59)",
+  );
+  expect(
+    parseFloat(await link.evaluate((el) => getComputedStyle(el).fontSize)),
+  ).toBeGreaterThanOrEqual(16);
 });

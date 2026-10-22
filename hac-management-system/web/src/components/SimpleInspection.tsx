@@ -1,4 +1,5 @@
 "use client";
+import OptionalInspectionSignature from "./OptionalInspectionSignature";
 import CataloguePicture from "./CataloguePicture";
 import UnlistedItemForm from "./UnlistedItemForm";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -202,6 +203,26 @@ export default function SimpleInspection({
         resolver.current = null;
         choosing.current = false;
       } else setError((failure as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function removeItem(row: Row) {
+    setSaving(true);
+    setError("");
+    try {
+      await api(`/inspections/${id}/remove-item`, {
+        method: "POST",
+        body: JSON.stringify({
+          observationId: row.id,
+          version: inspection?.version,
+        }),
+      });
+      await load();
+      setNotice("Item removed. Review the updated list before submitting.");
+    } catch (failure) {
+      setError((failure as Error).message);
+      if ((failure as Row).code === "VERSION_CONFLICT") await load();
     } finally {
       setSaving(false);
     }
@@ -477,7 +498,15 @@ export default function SimpleInspection({
                       "Recorded — requires HAC review"}
                   </span>
                 </div>
-                <Check size={18} />
+                {editable ? (
+                  <RemoveItemControl
+                    name={row.product?.name || row.observedName}
+                    disabled={saving}
+                    remove={() => removeItem(row)}
+                  />
+                ) : (
+                  <Check size={18} />
+                )}
               </li>
             ))}
           </ul>
@@ -494,7 +523,7 @@ export default function SimpleInspection({
               await load();
             }}
           >
-            Finish inspection · {rows.length} items
+            Review inspection · {rows.length} items
           </button>
         </div>
       )}
@@ -543,13 +572,90 @@ export default function SimpleInspection({
       )}
       {finishing && (
         <WorkspaceDialog
-          title="Submit this inspection?"
+          title="Review inspection"
           close={() => {
             if (!saving) setFinishing(false);
           }}
         >
           <div className="form-stack">
             <h2>{rows.length} inspected items</h2>
+            <p>
+              Check each item below. You can remove mistakes before submission.
+            </p>
+            <ul className="review-item-list">
+              {rows.map((row) => (
+                <li key={row.id}>
+                  <div className="review-item-heading">
+                    <CataloguePicture
+                      src={row.product?.imageUrl || row.evidence?.[0]?.url}
+                      name={row.product?.name || row.observedName}
+                    />
+                    <div>
+                      <strong>{row.product?.name || row.observedName}</strong>
+                      <small>
+                        {row.observedBrand ||
+                          row.product?.brand?.name ||
+                          "Brand not recorded"}
+                      </small>
+                      <span>
+                        {row.verification?.label || "Requires HAC review"}
+                      </span>
+                    </div>
+                    <RemoveItemControl
+                      name={row.product?.name || row.observedName}
+                      disabled={saving}
+                      remove={() => removeItem(row)}
+                    />
+                  </div>
+                  <details>
+                    <summary>Recorded details</summary>
+                    <dl>
+                      {[
+                        ["Manufacturer", row.observedManufacturer],
+                        ["Barcode", row.observedBarcode],
+                        ["Batch", row.batch],
+                        ["Quantity", row.quantity],
+                        ["Physical expiry", row.physicalExpiry],
+                        ["Notes", row.notes],
+                      ]
+                        .filter(([, value]) => value != null && value !== "")
+                        .map(([label, value]) => (
+                          <div key={label}>
+                            <dt>{label}</dt>
+                            <dd>{String(value)}</dd>
+                          </div>
+                        ))}
+                    </dl>
+                    {!row.productId && (
+                      <p>Unlisted item — saved on this visit only.</p>
+                    )}
+                  </details>
+                </li>
+              ))}
+            </ul>
+            {(inspection.signatures || []).map((signature: Row) => (
+              <p className="saved-signature" key={signature.id}>
+                ✓ {signature.name} ·{" "}
+                {signature.role === "INSPECTOR"
+                  ? "Supervisor"
+                  : "Company representative"}{" "}
+                ·{" "}
+                {signature.hasSignature
+                  ? "Signature saved"
+                  : "Authenticated confirmation"}
+              </p>
+            ))}
+            <OptionalInspectionSignature
+              key={inspection.version}
+              inspectionId={id}
+              version={inspection.version}
+              user={user}
+              onSaved={async () => {
+                await load();
+                setNotice("Signature saved");
+              }}
+            />
+
             <p>
               Submitting as <strong>{user.name}</strong>. By submitting, you
               confirm that these saved items accurately reflect your inspection.
@@ -574,7 +680,7 @@ export default function SimpleInspection({
             ) : (
               <button
                 className="button primary"
-                disabled={saving}
+                disabled={saving || !rows.length}
                 onClick={() => void submit()}
               >
                 {saving ? "Submitting…" : "Confirm & submit inspection"}
@@ -684,5 +790,55 @@ function QuickConfirm({
         </div>
       </div>
     </div>
+  );
+}
+
+function RemoveItemControl({
+  name,
+  disabled,
+  remove,
+}: {
+  name: string;
+  disabled: boolean;
+  remove: () => Promise<void>;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  return confirm ? (
+    <div
+      className="remove-item-confirm"
+      role="group"
+      aria-label={`Remove ${name}?`}
+    >
+      <strong>Remove?</strong>
+      <button
+        type="button"
+        className="button small danger"
+        disabled={disabled}
+        onClick={async () => {
+          await remove();
+          setConfirm(false);
+        }}
+      >
+        Yes, remove
+      </button>
+      <button
+        type="button"
+        className="button small secondary"
+        disabled={disabled}
+        onClick={() => setConfirm(false)}
+      >
+        Keep
+      </button>
+    </div>
+  ) : (
+    <button
+      type="button"
+      className="remove-item-button"
+      disabled={disabled}
+      aria-label={`Remove ${name}`}
+      onClick={() => setConfirm(true)}
+    >
+      Remove
+    </button>
   );
 }

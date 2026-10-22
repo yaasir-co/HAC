@@ -33,6 +33,15 @@ export async function GET(
           },
         },
         location: { select: { name: true, address: true } },
+        signatures: {
+          select: {
+            id: true,
+            name: true,
+            role: true,
+            signedAt: true,
+            signature: true,
+          },
+        },
         observations: {
           orderBy: { createdAt: "desc" },
           select: {
@@ -41,6 +50,12 @@ export async function GET(
             variantId: true,
             observedName: true,
             observedBrand: true,
+            observedManufacturer: true,
+            observedBarcode: true,
+            batch: true,
+            quantity: true,
+            physicalExpiry: true,
+            storageLocation: true,
             conclusion: true,
             notes: true,
             verification: true,
@@ -70,6 +85,10 @@ export async function GET(
     return json({
       ...record,
       company,
+      signatures: record.signatures.map(({ signature, ...row }) => ({
+        ...row,
+        hasSignature: !!signature,
+      })),
       observations: record.observations.map((row) => {
         const verification = row.verification as Record<string, unknown>;
         return {

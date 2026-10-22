@@ -411,7 +411,7 @@ export default function Portal({ route }: { route: string[] }) {
               <ProductTrainingLibrary />
             </>
           ) : module === "scanner" ? (
-            <StandaloneScanner canManageTests={admin} />
+            <StandaloneScanner />
           ) : module === "reports" ? (
             <Reports />
           ) : module === "checklists" && admin ? (
@@ -2199,7 +2199,7 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
                 : "This inspection is submitted. Its observations are preserved."}
             </div>
           )}
-          <Scanner inspectionId={id} onSelect={select} canManageTests={isAdmin} />
+          <Scanner inspectionId={id} onSelect={select} />
         </>
       )}
       {tab === "products" && (
@@ -2575,7 +2575,7 @@ function InspectionWorkspace({ id, user }: { id: string; user: Row }) {
     </>
   );
 }
-function StandaloneScanner({ canManageTests }: { canManageTests: boolean }) {
+function StandaloneScanner() {
   const [id, setId] = useState<string | null>(null),
     [vid, setVid] = useState<string | undefined>(),
     [companies, setCompanies] = useState<Row[]>([]),
@@ -2618,7 +2618,6 @@ function StandaloneScanner({ canManageTests }: { canManageTests: boolean }) {
       </section>
       <ErrorBox error={error} />
       <Scanner
-        canManageTests={canManageTests}
         onSelect={(pid, variantId) => {
           if (!companyId) {
             setError(

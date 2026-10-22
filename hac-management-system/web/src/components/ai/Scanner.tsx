@@ -5,170 +5,93 @@ import {
   CameraOff,
   FlipHorizontal,
   Focus,
-  ScanLine,
   Upload,
   Zap,
 } from "lucide-react";
 import { EXTRACTOR } from "@/lib/ai/core";
+import { frameDifference } from "@/lib/ai/foreground";
 import { browserEmbedding } from "@/lib/ai/browser";
-import {
-  classifyTestObject,
-  OBJECT_TEST_EXTRACTOR,
-  SCAN_TEST_NAMES,
-  type ObjectTestArtifact,
-} from "@/lib/ai/object-test-core";
-import { normalize } from "@/lib/ai/core";
 import CataloguePicture from "../CataloguePicture";
 import LiveProductSearch from "../LiveProductSearch";
-import { api, type Row } from "../client";
+import { api } from "../client";
 import styles from "./ai.module.css";
-
-type Mode = "visual" | "barcode" | "objects";
 type Product = {
   id: string;
   name: string;
-  itemCode: string;
+  itemCode?: string;
+  type?: string;
   imageUrl?: string | null;
   brand?: { name: string };
-  variants?: {
-    id: string;
-    name: string;
-    barcode?: string | null;
-    sku: string;
-  }[];
+  variants?: { id: string; name: string; sku: string }[];
+};
+type Candidate = {
+  productId: string;
+  variantId: string | null;
+  score: number;
+  product?: Product;
 };
 type ScanResult = {
-  candidates: {
-    productId: string;
-    variantId: string | null;
-    score: number;
-    product?: Product;
-  }[];
+  candidates: Candidate[];
+  predictionId: string;
   uncertain: boolean;
   reason: string;
-  modelVersionId: string;
-  predictionId: string;
+  guidance?: string;
 };
-type TestConfig = {
-  artifact: ObjectTestArtifact;
-  products: Product[];
-  evaluation: {
-    sourceImageCount: number;
-    test: { sampleCount: number; top1Accuracy: number };
-  };
-};
-let objectModel:
-  | Promise<
-      Awaited<
-        ReturnType<typeof import("@/lib/ai/visual-model").loadVisualModel>
-      >
-    >
-  | undefined;
-async function objectEmbedding(source: HTMLImageElement | HTMLCanvasElement) {
-  objectModel ??= import("@/lib/ai/visual-model")
-    .then(async ({ loadVisualModel }) => {
-      const tf = await import("@tensorflow/tfjs");
-      await tf.ready();
-      return loadVisualModel(OBJECT_TEST_EXTRACTOR.url);
-    })
-    .catch((error) => {
-      objectModel = undefined;
-      throw error;
-    });
-  const model = await objectModel,
-    features = model.infer(source);
-  try {
-    return normalize(Array.from(await features.data()));
-  } finally {
-    features.dispose();
-  }
-}
-function cameraFrame(video: HTMLVideoElement, center = false) {
-  if (video.readyState < 2 || !video.videoWidth || !video.videoHeight)
-    return null;
-  const canvas = document.createElement("canvas"),
-    context = canvas.getContext("2d");
-  if (!context) return null;
-  const side = Math.min(video.videoWidth, video.videoHeight) * 0.8;
-  canvas.width = center ? Math.round(side) : video.videoWidth;
-  canvas.height = center ? Math.round(side) : video.videoHeight;
-  context.drawImage(
-    video,
-    center ? (video.videoWidth - side) / 2 : 0,
-    center ? (video.videoHeight - side) / 2 : 0,
-    center ? side : video.videoWidth,
-    center ? side : video.videoHeight,
-    0,
-    0,
-    canvas.width,
-    canvas.height,
-  );
-  return canvas;
-}
 export default function Scanner({
   inspectionId,
   onSelect,
+  onQuickSelect,
   testModelId,
-  canManageTests = false,
   cameraOnly = false,
   inspectedProductIds = [],
-  onQuickSelect,
 }: {
   inspectionId?: string;
-  onSelect: (
-    productId: string,
-    variantId?: string,
-    predictionId?: string,
-  ) => void;
-  testModelId?: string;
-  canManageTests?: boolean;
-  cameraOnly?: boolean;
-  inspectedProductIds?: string[];
+  onSelect: (id: string, variant?: string, prediction?: string) => void;
   onQuickSelect?: (
-    productId: string,
-    variantId?: string,
-    predictionId?: string,
+    id: string,
+    variant?: string,
+    prediction?: string,
     product?: Product,
   ) => Promise<void>;
+  testModelId?: string;
+  cameraOnly?: boolean;
+  inspectedProductIds?: string[];
 }) {
-  const [active, setActive] = useState(false),
-    [frozen, setFrozen] = useState(false);
-  const [mode, setMode] = useState<Mode>(
-    testModelId || cameraOnly ? "visual" : "objects",
-  );
+  const [aiDetection, setAiDetection] = useState(false),
+    [guidance, setGuidance] = useState("");
+  const aiMode = useRef(false),
+    previous = useRef<Uint8Array | undefined>(undefined),
+    stableFrames = useRef(0);
   const [model, setModel] = useState<{ id: string; version: number } | null>(
-    null,
-  );
-  const [test, setTest] = useState<TestConfig | null>(null);
-  const [result, setResult] = useState<ScanResult | null>(null);
-  const [objectResult, setObjectResult] = useState<ReturnType<
-    typeof classifyTestObject
-  > | null>(null);
-  const [error, setError] = useState(""),
-    [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(""),
-    [barcode, setBarcode] = useState("");
-  const [facing, setFacing] = useState<"environment" | "user">("environment");
-  const [selecting, setSelecting] = useState(false),
+      null,
+    ),
+    [active, setActive] = useState(false),
+    [busyLabel, setBusyLabel] = useState(""),
+    [error, setError] = useState("");
+  const [result, setResult] = useState<ScanResult | null>(null),
+    [expanded, setExpanded] = useState(false),
+    [holding, setHolding] = useState(false),
+    [frozen, setFrozen] = useState(false),
+    [selecting, setSelecting] = useState(false),
     [torch, setTorch] = useState(false),
-    [torchAvailable, setTorchAvailable] = useState(false);
+    [hasTorch, setHasTorch] = useState(false);
   const video = useRef<HTMLVideoElement>(null),
-    stream = useRef<MediaStream | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    revision = useRef(0);
-  const live = useRef(false),
-    busy = useRef(false),
+    stream = useRef<MediaStream | null>(null),
+    timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const generation = useRef(0),
+    live = useRef(false),
     paused = useRef(false),
-    captured = useRef<Blob | null>(null);
-  const modeRef = useRef(mode),
+    working = useRef(false),
     modelRef = useRef(model),
-    testRef = useRef(test);
-  const tickRef = useRef<() => Promise<void>>(async () => {});
+    facing = useRef("environment"),
+    list = useRef<HTMLDivElement>(null),
+    tick = useRef<() => Promise<void>>(async () => {}),
+    mounted = useRef(true);
   const stop = useCallback(() => {
-    revision.current++;
+    generation.current++;
     live.current = false;
-    busy.current = false;
     paused.current = false;
+    working.current = false;
     if (timer.current) clearTimeout(timer.current);
     stream.current?.getTracks().forEach((track) => track.stop());
     stream.current = null;
@@ -177,12 +100,13 @@ export default function Scanner({
       video.current.srcObject = null;
     }
     setActive(false);
+    setBusyLabel("");
     setFrozen(false);
     setTorch(false);
-    setTorchAvailable(false);
-    setLoading("");
+    setHasTorch(false);
   }, []);
   useEffect(() => {
+    mounted.current = true;
     let current = true;
     api<{ id: string; version: number } | null>(
       testModelId ? `/ai/models/${testModelId}` : "/ai/published",
@@ -191,161 +115,180 @@ export default function Scanner({
         if (current) {
           setModel(value);
           modelRef.current = value;
-          if (cameraOnly) {
-            if (!value)
-              setMessage(
-                "No product model is published yet. An administrator can add photos and train it; catalogue search remains available.",
-              );
-            void start();
-          }
+          if (cameraOnly) void start();
         }
       })
-      .catch((failure) => {
-        if (current && (testModelId || cameraOnly))
-          setError(
-            `Could not load the product model: ${failure.message}. Close the camera and retry, or use catalogue search.`,
-          );
+      .catch((e) => {
+        if (current) setError(`Could not load the product model: ${e.message}`);
       });
-    if (!cameraOnly)
-      api<TestConfig>("/ai/scan-test")
-        .then((value) => {
-          if (current) {
-            setTest(value);
-            testRef.current = value;
-          }
-        })
-        .catch((failure) => {
-          if (current)
-            setError(
-              `Scan test unavailable: ${failure.message}. Catalogue search is available below.`,
-            );
-        });
-    return () => {
-      current = false;
-      stop();
-    };
-  }, [stop, testModelId, cameraOnly]);
-  useEffect(() => {
     const visibility = () => {
       if (document.hidden) stop();
     };
     document.addEventListener("visibilitychange", visibility);
-    return () => document.removeEventListener("visibilitychange", visibility);
-  }, [stop]);
+    return () => {
+      current = false;
+      mounted.current = false;
+      document.removeEventListener("visibilitychange", visibility);
+      stop();
+    };
+  }, [stop, testModelId, cameraOnly]);
+  function hold() {
+    paused.current = true;
+    setHolding(true);
+    setExpanded(true);
+    if (timer.current) clearTimeout(timer.current);
+  }
+  function resume() {
+    stableFrames.current = 0;
+    previous.current = undefined;
+    setGuidance("");
+    paused.current = false;
+    setHolding(false);
+    setFrozen(false);
+    setExpanded(false);
+    setResult(null);
+    setError("");
+    if (list.current) list.current.scrollTop = 0;
+    void video.current?.play().catch(() => {});
+    if (timer.current) clearTimeout(timer.current);
+    if (live.current)
+      timer.current = setTimeout(() => void tick.current(), 300);
+  }
   async function analyze(
     source: HTMLCanvasElement | HTMLImageElement,
-    generation: number,
+    token: number,
   ) {
-    const selectedMode = modeRef.current;
-    if (selectedMode === "objects") {
-      const config = testRef.current;
-      if (!config)
-        throw new Error(
-          "Scan test is loading. Retry shortly or use catalogue search.",
-        );
-      setLoading("Checking test object…");
-      const embedding = await objectEmbedding(source);
-      if (revision.current === generation)
-        setObjectResult(classifyTestObject(embedding, config.artifact));
-    } else {
-      if (!modelRef.current) {
-        if (cameraOnly) return;
-        throw new Error(
-          "No product model is published. Try Test objects, barcode or catalogue search.",
-        );
-      }
-      setLoading("Checking product image…");
-      const embedding = await browserEmbedding(source);
-      if (revision.current !== generation) return;
-      const value = await api<ScanResult>("/ai/predict", {
-        method: "POST",
-        body: JSON.stringify({
-          embedding,
-          extractorVersion: EXTRACTOR.version,
-          inspectionId,
-          modelVersionId: testModelId,
-        }),
+    if (!modelRef.current) return;
+    setBusyLabel("Finding matching products…");
+    const embedding = await browserEmbedding(source);
+    if (generation.current !== token) return;
+    const value = await api<ScanResult>("/ai/predict", {
+      method: "POST",
+      body: JSON.stringify({
+        embedding,
+        extractorVersion: EXTRACTOR.version,
+        inspectionId,
+        modelVersionId: testModelId,
+      }),
+    });
+    if (generation.current === token && !paused.current)
+      setResult({
+        ...value,
+        candidates: value.candidates
+          .filter((row) => Number.isFinite(row.score) && row.score >= 0.75)
+          .slice(0, 10),
       });
-      if (revision.current === generation) setResult(value);
+  }
+  async function captureAI(canvas: HTMLCanvasElement, token: number) {
+    setBusyLabel("Capturing and checking product…");
+    video.current?.pause();
+    setFrozen(true);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.88),
+    );
+    if (!blob)
+      throw new Error("Could not capture this frame. Show the product again.");
+    const form = new FormData();
+    form.set(
+      "file",
+      new File([blob], "live-capture.jpg", { type: "image/jpeg" }),
+    );
+    if (inspectionId) form.set("inspectionId", inspectionId);
+    if (testModelId) form.set("modelVersionId", testModelId);
+    const value = await api<ScanResult>("/ai/capture", {
+      method: "POST",
+      body: form,
+    });
+    if (token !== generation.current) return;
+    const candidates = value.candidates
+      .filter((row) => row.score >= 0.75)
+      .slice(0, 10);
+    setResult({ ...value, candidates });
+    setGuidance(value.guidance || "");
+    stableFrames.current = 0;
+    if (candidates.length) {
+      paused.current = true;
+      setHolding(true);
+    } else {
+      setFrozen(false);
+      void video.current?.play().catch(() => {});
     }
   }
-  tickRef.current = async () => {
-    if (!live.current || busy.current || paused.current) return;
-    const generation = revision.current;
-    busy.current = true;
+  tick.current = async () => {
+    if (!live.current || working.current || paused.current) return;
+    const token = generation.current;
+    working.current = true;
     try {
-      if (modeRef.current === "barcode") {
-        const detector = (
-          window as unknown as {
-            BarcodeDetector?: new () => {
-              detect(source: HTMLVideoElement): Promise<{ rawValue: string }[]>;
-            };
-          }
-        ).BarcodeDetector;
-        if (!detector) {
-          setMessage(
-            "Barcode scanning is not supported by this browser. Type the barcode in product search below.",
+      const element = video.current;
+      if (element && element.readyState >= 2 && element.videoWidth) {
+        const canvas = document.createElement("canvas");
+        canvas.width = element.videoWidth;
+        canvas.height = element.videoHeight;
+        canvas.getContext("2d")?.drawImage(element, 0, 0);
+        if (aiMode.current && modelRef.current) {
+          const thumbnail = document.createElement("canvas");
+          thumbnail.width = 24;
+          thumbnail.height = 24;
+          const context = thumbnail.getContext("2d")!;
+          context.drawImage(element, 0, 0, 24, 24);
+          const pixels = new Uint8Array(
+            context.getImageData(0, 0, 24, 24).data,
           );
-          paused.current = true;
-          setFrozen(true);
-          video.current?.pause();
-        } else if (video.current && video.current.readyState >= 2) {
-          const values = await new detector().detect(video.current);
-          if (revision.current === generation && values[0]) {
-            setBarcode(values[0].rawValue);
-            setMessage("Barcode found. Select its catalogue match below.");
-            paused.current = true;
-            setFrozen(true);
-            video.current.pause();
-          }
-        }
-      } else if (video.current) {
-        const frame = cameraFrame(video.current, modeRef.current === "objects");
-        if (frame) await analyze(frame, generation);
+          const motion = frameDifference(previous.current, pixels);
+          previous.current = pixels;
+          stableFrames.current = motion < 0.035 ? stableFrames.current + 1 : 0;
+          if (stableFrames.current >= 2) await captureAI(canvas, token);
+          else
+            setGuidance(
+              "Show one product and hold it steady for automatic capture.",
+            );
+        } else await analyze(canvas, token);
       }
-    } catch (failure) {
-      if (revision.current === generation) {
-        setError((failure as Error).message);
+    } catch (e) {
+      if (token === generation.current) {
+        setError((e as Error).message);
         paused.current = true;
-        setFrozen(true);
-        video.current?.pause();
+        setHolding(true);
       }
     } finally {
-      if (revision.current === generation) {
-        busy.current = false;
-        setLoading("");
+      if (token === generation.current) {
+        working.current = false;
+        setBusyLabel("");
         if (live.current && !paused.current)
-          timer.current = setTimeout(() => void tickRef.current(), 2200);
+          timer.current = setTimeout(() => void tick.current(), 1800);
       }
     }
   };
-  async function start(nextFacing = facing) {
+  async function start() {
     stop();
-    setError("");
-    setMessage("");
+    stableFrames.current = 0;
+    previous.current = undefined;
+    setGuidance("");
     setResult(null);
-    setObjectResult(null);
-    const generation = revision.current;
-    setLoading("Opening camera…");
+    setExpanded(false);
+    setHolding(false);
+    setError("");
+    const token = generation.current;
+    setBusyLabel("Opening camera…");
     try {
       if (!navigator.mediaDevices?.getUserMedia)
-        throw new Error("Camera access needs HTTPS and a supported browser");
+        throw new Error("Use HTTPS and allow camera access");
       const media = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: { ideal: nextFacing },
+          facingMode: { ideal: facing.current },
           width: { ideal: 1280 },
           height: { ideal: 960 },
         },
         audio: false,
       });
-      if (revision.current !== generation) {
+      if (token !== generation.current) {
         media.getTracks().forEach((track) => track.stop());
         return;
       }
       stream.current = media;
       live.current = true;
       setActive(true);
-      setTorchAvailable(
+      setHasTorch(
         !!(
           media
             .getVideoTracks()[0]
@@ -358,165 +301,80 @@ export default function Scanner({
         video.current.srcObject = media;
         await video.current.play();
       }
-      if (revision.current === generation)
-        timer.current = setTimeout(() => void tickRef.current(), 500);
-    } catch (failure) {
-      if (revision.current === generation) {
+      if (token === generation.current)
+        timer.current = setTimeout(() => void tick.current(), 400);
+    } catch (e) {
+      if (token === generation.current) {
         stop();
         setError(
-          `Camera unavailable: ${(failure as Error).message}. Allow camera access in browser settings, or upload a photograph below.`,
+          `Camera unavailable: ${(e as Error).message}. Allow camera access or choose a photo.`,
         );
       }
     } finally {
-      if (revision.current === generation) setLoading("");
+      if (token === generation.current) setBusyLabel("");
     }
   }
-  async function freeze() {
-    if (!video.current) return;
-    const canvas = cameraFrame(video.current, modeRef.current === "objects");
-    paused.current = true;
-    setFrozen(true);
-    video.current.pause();
-    if (canvas) {
-      captured.current = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", 0.9),
-      );
-      if (!busy.current && modeRef.current !== "barcode") {
-        const generation = revision.current;
-        busy.current = true;
-        try {
-          await analyze(canvas, generation);
-        } catch (failure) {
-          if (generation === revision.current)
-            setError((failure as Error).message);
-        } finally {
-          if (generation === revision.current) {
-            busy.current = false;
-            setLoading("");
-          }
-        }
-      }
-    }
-  }
-  function resume() {
-    paused.current = false;
-    setFrozen(false);
-    setError("");
-    void video.current?.play().then(() => {
-      if (!busy.current && live.current) void tickRef.current();
-    });
-  }
-  async function imageScan(file: File) {
-    stop();
-    setError("");
-    setMessage("");
-    setResult(null);
-    setObjectResult(null);
-    if (file.size > 8_000_000) {
-      setError("Choose an image smaller than 8 MB.");
-      return;
-    }
-    if (!/^image\/(jpeg|png|webp)$/.test(file.type)) {
-      setError("Choose a JPEG, PNG or WebP photograph.");
-      return;
-    }
-    const generation = revision.current,
-      image = new Image(),
-      url = URL.createObjectURL(file);
-    setLoading("Opening photograph…");
-    try {
-      image.src = url;
-      await image.decode();
-      if (image.width * image.height > 20_000_000)
-        throw new Error("Choose a photograph smaller than 20 megapixels.");
-      if (revision.current !== generation) return;
-      await analyze(image, generation);
-      if (revision.current === generation) captured.current = file;
-    } catch (failure) {
-      if (revision.current === generation) setError((failure as Error).message);
-    } finally {
-      URL.revokeObjectURL(url);
-      if (revision.current === generation) setLoading("");
-    }
-  }
-  const select = async (
-    id: string,
-    variant?: string,
-    prediction?: string,
-    product?: Product,
-  ) => {
-    if (selecting || inspectedProductIds.includes(id)) return;
+  async function select(candidate: Candidate) {
+    if (selecting || inspectedProductIds.includes(candidate.productId)) return;
     if (!onQuickSelect) {
       stop();
-      onSelect(id, variant, prediction);
+      onSelect(
+        candidate.productId,
+        candidate.variantId || undefined,
+        result?.predictionId,
+      );
       return;
     }
     paused.current = true;
     setSelecting(true);
     if (timer.current) clearTimeout(timer.current);
     try {
-      await onQuickSelect(id, variant, prediction, product);
+      await onQuickSelect(
+        candidate.productId,
+        candidate.variantId || undefined,
+        result?.predictionId,
+        candidate.product,
+      );
     } finally {
-      setSelecting(false);
-      if (live.current && !document.hidden) {
-        paused.current = false;
-        setResult(null);
-        timer.current = setTimeout(() => void tickRef.current(), 500);
+      if (mounted.current) {
+        setSelecting(false);
+        if (live.current && !document.hidden) resume();
       }
     }
-  };
-  async function addTestProducts() {
-    setLoading("Adding test catalogue…");
+  }
+  async function upload(file: File) {
+    stop();
+    setResult(null);
     setError("");
-    try {
-      await api("/ai/scan-test", { method: "POST" });
-      const config = await api<TestConfig>("/ai/scan-test");
-      setTest(config);
-      testRef.current = config;
-      setMessage(
-        "Five clearly marked test objects were added to the catalogue. No certificates were created. Person detections stay camera tests only.",
+    setExpanded(false);
+    if (!modelRef.current) {
+      setError(
+        "An administrator must publish a product model first. Use catalogue search.",
       );
-    } catch (failure) {
-      setError((failure as Error).message);
+      return;
+    }
+    if (file.size > 8_000_000 || !/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      setError("Choose a JPEG, PNG or WebP image of at most 8 MB.");
+      return;
+    }
+    const image = new Image(),
+      url = URL.createObjectURL(file),
+      token = generation.current;
+    setBusyLabel("Opening photo…");
+    try {
+      image.src = url;
+      await image.decode();
+      if (image.width * image.height > 20_000_000)
+        throw new Error("Choose a photo smaller than 20 megapixels.");
+      await analyze(image, token);
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
-      setLoading("");
+      URL.revokeObjectURL(url);
+      if (token === generation.current) setBusyLabel("");
     }
   }
-  async function saveEvidence() {
-    if (!captured.current || !inspectionId) return;
-    setLoading("Saving photograph…");
-    setError("");
-    try {
-      const form = new FormData(),
-        blob = captured.current;
-      form.set(
-        "file",
-        new File(
-          [blob],
-          "scan-capture" +
-            (blob.type === "image/png"
-              ? ".png"
-              : blob.type === "image/webp"
-                ? ".webp"
-                : ".jpg"),
-          { type: blob.type },
-        ),
-      );
-      form.set("inspectionId", inspectionId);
-      form.set(
-        "description",
-        mode === "objects"
-          ? "Scanner object test capture"
-          : "Product scanner capture",
-      );
-      await api("/evidence", { method: "POST", body: form });
-      setMessage("Photograph saved to this inspection.");
-    } catch (failure) {
-      setError((failure as Error).message);
-    } finally {
-      setLoading("");
-    }
-  }
+  const candidates = result?.candidates || [];
   return (
     <div className={`${styles.studio} ${cameraOnly ? styles.cameraOnly : ""}`}>
       {error && (
@@ -524,188 +382,196 @@ export default function Scanner({
           {error}
         </div>
       )}
-      {message && (
-        <div role="status" className={styles.message}>
-          {message}
+      <section className={styles.panel}>
+        <label className={styles.aiDetectionToggle}>
+          <input
+            type="checkbox"
+            checked={aiDetection}
+            disabled={selecting || !!busyLabel}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setAiDetection(enabled);
+              aiMode.current = enabled;
+              resume();
+            }}
+          />
+          <span>
+            <strong>AI detection mode</strong>
+            <small>
+              Automatic capture, foreground focus and a guided retry
+            </small>
+          </span>
+        </label>
+        <div className={styles.scanHeading}>
+          <h2>Scan products</h2>
+          <span className={styles.livePill}>
+            {active ? "Camera on" : "Ready"}
+          </span>
         </div>
-      )}
-      <div className={styles.grid}>
-        <section className={styles.panel}>
-          <div className={styles.scanHeading}>
-            <div>
-              <span className={styles.scanEyebrow}>CAMERA WORKSPACE</span>
-              <h2>
-                {cameraOnly
-                  ? "Choose an item below"
-                  : mode === "objects"
-                    ? "Try the live scanner"
-                    : "Identify a product"}
-              </h2>
+        <div className={styles.videoWrap}>
+          <video
+            ref={video}
+            autoPlay
+            playsInline
+            muted
+            className={styles.video}
+          />
+          <span className={styles.guide} />
+          {!active && !candidates.length && (
+            <div className={styles.cameraEmpty}>
+              <Camera size={34} />
+              <strong>Point the camera at one item</strong>
+              <span>Only matches with at least 75% similarity appear.</span>
             </div>
-            <span className={styles.livePill}>
-              {active ? "Camera on" : "Ready"}
-            </span>
-          </div>
-          {!cameraOnly && (
-            <label className={styles.label}>
-              What are you scanning?
-              <select
-                className={styles.control}
-                value={mode}
-                onChange={(event) => {
-                  stop();
-                  const next = event.target.value as Mode;
-                  modeRef.current = next;
-                  setMode(next);
-                  setResult(null);
-                  setObjectResult(null);
-                  setError("");
-                }}
-              >
-                <option value="objects">
-                  Test objects: laptop, phone, person, pen, pencil, book
-                </option>
-                <option value="visual">
-                  HAC product recognition
-                  {!model ? " (model not published)" : ` · v${model.version}`}
-                </option>
-                <option value="barcode">Product barcode / QR</option>
-              </select>
-            </label>
           )}
-          <div className={styles.videoWrap}>
-            <video
-              ref={video}
-              className={styles.video}
-              autoPlay
-              playsInline
-              muted
-              aria-label="Live camera preview"
-            />
-            {!active && (
-              <div className={styles.cameraEmpty}>
-                <Camera size={42} />
-                <strong>Place one item in the frame</strong>
-                <span>Use good light and keep the object close.</span>
-              </div>
-            )}
-            <span className={styles.guide} aria-hidden="true" />
-            {cameraOnly && (
-              <div
-                className={styles.liveChoices}
-                aria-label="Top three predicted products"
-              >
-                {result?.candidates.length ? (
-                  <>
-                    <span className={styles.predictionCaption}>
-                      {result.uncertain
-                        ? "Possible matches — check the item"
-                        : "Tap the item you see"}
-                    </span>
-                    {result.candidates.slice(0, 3).map((candidate, index) => (
-                      <button
-                        type="button"
-                        key={`${candidate.productId}:${candidate.variantId}`}
-                        disabled={
-                          selecting ||
-                          inspectedProductIds.includes(candidate.productId)
-                        }
-                        onClick={() =>
-                          void select(
-                            candidate.productId,
-                            candidate.variantId || undefined,
-                            result.predictionId,
-                            candidate.product,
-                          )
-                        }
-                      >
-                        <CataloguePicture
-                          src={candidate.product?.imageUrl}
-                          name={candidate.product?.name || "Catalogue item"}
-                        />
-                        <span>
-                          <strong>
-                            {candidate.product?.name || "Catalogue item"}
-                          </strong>
-                          <small>
-                            {candidate.product?.brand?.name ||
-                              "Confirm the physical item"}
-                          </small>
-                        </span>
-                        <span>
+          <div
+            className={styles.liveChoices}
+            aria-label="Predicted products above 75 percent"
+          >
+            <div className={styles.predictionCaption}>
+              {selecting
+                ? "Confirm your item below"
+                : holding
+                  ? "Matches held while browsing"
+                  : candidates.length
+                    ? "Choose the item you see"
+                    : guidance ||
+                      "No match at 75% yet — show the product again"}
+              {result?.uncertain && candidates.length > 0 && (
+                <small>
+                  Check identity carefully. Similarity does not confirm
+                  approval.
+                </small>
+              )}
+            </div>
+            {!!candidates.length && (
+              <>
+                <div
+                  ref={list}
+                  className={`${styles.matchList} ${expanded ? styles.matchListExpanded : ""}`}
+                  aria-label="Product matches"
+                  onScroll={() => {
+                    if ((list.current?.scrollTop || 0) > 1 && !expanded) hold();
+                  }}
+                >
+                  {candidates.map((candidate, index) => (
+                    <button
+                      type="button"
+                      className={styles.matchRow}
+                      disabled={
+                        selecting ||
+                        inspectedProductIds.includes(candidate.productId)
+                      }
+                      key={`${result?.predictionId}:${candidate.productId}:${candidate.variantId}`}
+                      onClick={() => void select(candidate)}
+                    >
+                      <CataloguePicture
+                        src={candidate.product?.imageUrl}
+                        name={candidate.product?.name || "Catalogue item"}
+                      />
+                      <span>
+                        <strong>
+                          {index + 1}.{" "}
+                          {candidate.product?.name || "Catalogue item"}
+                        </strong>
+                        <small>
+                          {candidate.product?.brand?.name ||
+                            "Confirm physical identity"}
+                        </small>
+                      </span>
+                      <span className={styles.matchScore}>
+                        {(candidate.score * 100).toFixed(0)}%
+                        <small>
                           {inspectedProductIds.includes(candidate.productId)
                             ? "Added"
-                            : "＋"}
-                        </span>
-                      </button>
-                    ))}
-                  </>
-                ) : (
-                  <span className={styles.predictionCaption}>
-                    {selecting
-                      ? "Adding your item…"
-                      : model
-                        ? "Keep one item steady. Matches appear here."
-                        : "Train and publish a product model to see predictions."}
-                  </span>
+                            : "similarity"}
+                        </small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {candidates.length > 2 && (
+                  <button
+                    type="button"
+                    className={styles.moreMatches}
+                    onClick={() => (expanded ? resume() : hold())}
+                    disabled={selecting}
+                  >
+                    {expanded
+                      ? "Refresh live matches"
+                      : `More matches · ${candidates.length} — swipe up`}
+                  </button>
                 )}
-              </div>
+              </>
             )}
           </div>
-          <div className={styles.cameraActions}>
-            <button
-              className={`${styles.button} ${styles.primary}`}
-              disabled={!!loading && !active}
-              onClick={() => void start()}
-            >
-              <Camera size={19} />
-              {active ? "Restart camera" : "Start camera"}
-            </button>
-            {active && (
+        </div>
+        <div className={styles.cameraActions}>
+          <button
+            className={`${styles.button} ${styles.primary}`}
+            disabled={selecting}
+            onClick={() => void start()}
+          >
+            <Camera size={18} />
+            {active ? "Restart camera" : "Start camera"}
+          </button>
+          <button
+            className={styles.button}
+            disabled={!active || selecting}
+            onClick={() => {
+              if (frozen || holding) resume();
+              else {
+                paused.current = true;
+                setFrozen(true);
+                setHolding(true);
+                video.current?.pause();
+              }
+            }}
+          >
+            <Focus size={18} />
+            {frozen || holding ? "Resume scan" : "Freeze frame"}
+          </button>
+          <label className={`${styles.button} ${styles.uploadButton}`}>
+            <Upload size={18} />
+            Upload photo
+            <input
+              aria-label="Upload photo"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={selecting}
+              onChange={(e) => {
+                if (e.target.files?.[0]) void upload(e.target.files[0]);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {active && (
+            <>
               <button
                 className={styles.button}
-                disabled={!!loading}
-                onClick={() => (frozen ? resume() : void freeze())}
+                disabled={selecting}
+                onClick={stop}
               >
-                <Focus size={19} />
-                {frozen ? "Resume scan" : "Freeze frame"}
-              </button>
-            )}
-            <label className={`${styles.button} ${styles.uploadButton}`}>
-              <Upload size={19} />
-              Upload photo
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void imageScan(file);
-                  event.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-          {active && (
-            <div className={styles.toolbar}>
-              <button className={styles.button} onClick={stop}>
-                <CameraOff size={17} />
+                <CameraOff size={18} />
                 Stop camera
               </button>
               <button
                 className={styles.button}
+                disabled={selecting}
                 onClick={() => {
-                  const next =
-                    facing === "environment" ? "user" : "environment";
-                  setFacing(next);
-                  void start(next);
+                  facing.current =
+                    facing.current === "environment" ? "user" : "environment";
+                  void start();
                 }}
               >
-                <FlipHorizontal size={17} />
+                <FlipHorizontal size={18} />
                 Switch camera
               </button>
-              {torchAvailable && (
+              {hasTorch && (
                 <button
                   className={styles.button}
+                  disabled={selecting}
+                  aria-pressed={torch}
                   onClick={async () => {
                     try {
                       await stream.current
@@ -715,203 +581,38 @@ export default function Scanner({
                             { torch: !torch } as MediaTrackConstraintSet,
                           ],
                         });
-                      setTorch((value) => !value);
+                      setTorch(!torch);
                     } catch {
-                      setMessage("Torch is unavailable on this camera.");
+                      setError("Torch is not available on this camera.");
                     }
                   }}
                 >
-                  <Zap size={17} />
-                  Torch {torch ? "off" : "on"}
-                </button>
-              )}
-            </div>
-          )}
-          <p className={styles.scanStatus} role="status" aria-live="polite">
-            {loading ||
-              (active
-                ? "Live scan updates automatically. Camera stops when you switch apps."
-                : "Camera or photograph · manual search is always available below.")}
-          </p>
-          {inspectionId && (
-            <button
-              className={styles.button}
-              disabled={!captured.current || !!loading || mode === "objects"}
-              onClick={() => void saveEvidence()}
-            >
-              Save captured product photo
-            </button>
-          )}
-          {mode === "objects" && (
-            <p className={styles.muted}>
-              Camera testing only. Includes a person category, without
-              identifying anyone. Test suggestions do not establish HAC
-              approval.
-            </p>
-          )}
-        </section>
-        <section className={styles.panel}>
-          <h2>
-            {mode === "objects"
-              ? "Test object suggestions"
-              : "Product suggestions"}
-          </h2>
-          {mode === "objects" ? (
-            <>
-              <p className={styles.muted}>
-                Laptop · mobile phone · person · pen · pencil · book. Fill the
-                center guide with one object.
-              </p>
-              {objectResult ? (
-                <>
-                  <div
-                    className={`${styles.message} ${objectResult.uncertain ? styles.error : ""}`}
-                  >
-                    {objectResult.reason}
-                  </div>
-                  {objectResult.candidates
-                    .filter((candidate) => candidate.label !== "background")
-                    .map((candidate) => {
-                      const product = test?.products.find(
-                        (item) => item.id === `scan-test-${candidate.label}`,
-                      );
-                      return (
-                        <div
-                          className={styles.objectCandidate}
-                          key={candidate.label}
-                        >
-                          <div>
-                            <strong>{SCAN_TEST_NAMES[candidate.label]}</strong>
-                            <small>
-                              {(candidate.score * 100).toFixed(0)}% model score
-                              · test suggestion
-                            </small>
-                          </div>
-                          {candidate.label === "person" ? (
-                            <span className={styles.testOnly}>
-                              Camera test only
-                            </span>
-                          ) : product ? (
-                            <button
-                              className={styles.button}
-                              onClick={() =>
-                                void select(
-                                  product.id,
-                                  undefined,
-                                  undefined,
-                                  product,
-                                )
-                              }
-                            >
-                              Select test item
-                            </button>
-                          ) : (
-                            <span className={styles.testOnly}>
-                              Test catalogue not added
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                </>
-              ) : (
-                <div className={styles.emptyScan}>
-                  <ScanLine size={32} />
-                  <h3>Ready when you are</h3>
-                  <p>
-                    Start the camera or upload a photograph to see actual model
-                    suggestions.
-                  </p>
-                </div>
-              )}
-              {test && (
-                <p className={styles.muted}>
-                  {test.evaluation.sourceImageCount} training/evaluation images
-                  · experimental model. Similar objects and unfamiliar
-                  backgrounds can be uncertain.
-                </p>
-              )}
-              {canManageTests && (
-                <button
-                  className={styles.button}
-                  disabled={!!loading}
-                  onClick={() => void addTestProducts()}
-                >
-                  Add five scan test items to catalogue
+                  <Zap size={18} />
+                  Light
                 </button>
               )}
             </>
-          ) : mode === "barcode" ? (
-            <p>
-              Scan a barcode, then choose the matching product below. You can
-              also enter it manually.
-            </p>
-          ) : result ? (
-            <>
-              <div
-                className={`${styles.message} ${result.uncertain ? styles.error : ""}`}
-              >
-                {result.uncertain ? "Identity not confirmed. " : ""}
-                {result.reason}
-              </div>
-              {result.candidates.map((candidate) => (
-                <button
-                  className={styles.candidate}
-                  key={`${candidate.productId}:${candidate.variantId}`}
-                  onClick={() =>
-                    void select(
-                      candidate.productId,
-                      candidate.variantId || undefined,
-                      result.predictionId,
-                      candidate.product,
-                    )
-                  }
-                >
-                  <CataloguePicture
-                    src={candidate.product?.imageUrl}
-                    name={candidate.product?.name || "Catalogue item"}
-                  />
-                  <span>
-                    <strong>
-                      {candidate.product?.name || candidate.productId}
-                    </strong>
-                    <small>
-                      {candidate.product?.brand?.name} · confirm physical
-                      packaging
-                    </small>
-                  </span>
-                  <span className={styles.score}>
-                    {(candidate.score * 100).toFixed(1)}%
-                    <small>similarity</small>
-                  </span>
-                </button>
-              ))}
-              <p>
-                Visual similarity suggests identity. Confirm the physical item;
-                HAC records are checked separately.
-              </p>
-            </>
-          ) : (
-            <p>
-              {model
-                ? `Product model v${model.version}. Point the camera at one product.`
-                : "An administrator must train and publish a product model for HAC packaging. Test objects and catalogue search are available now."}
-            </p>
           )}
-          {testModelId && (
-            <p className={styles.message}>
-              Administrator test of model v{model?.version}. This does not
-              publish the model.
-            </p>
-          )}
-        </section>
-      </div>
+        </div>
+        <div className={styles.scanStatus} role="status">
+          {busyLabel ||
+            guidance ||
+            (!model
+              ? "No published product model. Catalogue search is available."
+              : "75% minimum similarity · confirm the physical item before adding.")}
+        </div>
+      </section>
       {!cameraOnly && (
         <section className={styles.panel}>
           <LiveProductSearch
-            initialQuery={barcode}
+            inspectedProductIds={inspectedProductIds}
             select={(id, variant, product) => {
-              void select(id, variant, undefined, product as Product);
+              if (onQuickSelect)
+                void onQuickSelect(id, variant, undefined, product as Product);
+              else {
+                stop();
+                onSelect(id, variant);
+              }
             }}
           />
         </section>

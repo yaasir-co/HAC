@@ -42,10 +42,10 @@ export async function api<T = any>(
       }));
     if (!result.ok)
       throw Object.assign(
-        new Error(body.error?.message ?? `Request failed (${result.status}).`),
+        new Error(`${body.error?.message ?? `Request failed (${result.status}).`}${body.error?.code ? ` [${body.error.code}]` : ""}`),
         { status: result.status, code: body.error?.code },
       );
-    return body.data ?? body;
+    return body && typeof body === "object" && "data" in body ? body.data : body;
   } catch (error) {
     if (timedOut)
       throw Object.assign(

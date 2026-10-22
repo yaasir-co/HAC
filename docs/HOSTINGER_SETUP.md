@@ -120,3 +120,11 @@ A missing migration now returns a safe `DATABASE_SCHEMA_NOT_READY` message inste
 Keep the persistent private storage directories writable and backed up. Catalogue images use the same private opaque-key storage as evidence, are re-encoded to remove metadata, and are served only after authentication. A company logo is restricted to staff with company access. No uploaded images are placed under `public_html` or cached by the service worker.
 
 The public app icons use the supplied circular HAC logo (PNG 192/512 and Apple touch icon). Supported Android browsers show the native install option after **Install app** is tapped. iPhone users receive Share → Add to Home Screen instructions. Browsers control install eligibility; a site cannot force native installation. The first-visit message is dismissed per browser/device, can be reopened with **Install HAC app**, and stays hidden in standalone mode. Existing installed apps may retain an OS-cached icon until their manifest/icon update is processed.
+
+## Mobile review/scanner update
+
+Deploy the latest GitHub source after merging the mobile review/scanner pull request; rebuilding “previous deployment source” retains old code. Keep the app root `hac-management-system/web` and `npm run build`. This update adds no migration. Existing earlier migrations still need to be applied using the documented hosted setup flag if pending.
+
+P2039 is a Prisma driver wrapper and alone does not identify the underlying database cause. This update uses simpler parameterised catalogue queries and records safe structured `driverCodes` for wrapped failures. If search still fails after deploying the new source, provide the new error code/driverCodes line without credentials. Local disposable MySQL validation does not verify the live Hostinger database.
+
+The v4 installed icon uses the supplied circular HAC artwork. The manifest is not service-worker cached; existing OS installations may require one remove/reinstall if their old icon persists.
