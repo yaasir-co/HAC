@@ -1,3 +1,5 @@
+> Current scanner behavior supersedes older display requirements below: product models only, similarity >=75%, two initially visible suggestions with scrolling up to ten, optional AI stable-frame capture. See [mobile inspections](MOBILE_INSPECTIONS.md).
+
 # MASTER CODEX PROMPT — HAC INTELLIGENT CERTIFICATION, PRODUCT RECOGNITION & INSPECTION PLATFORM
 
 ## 0. YOUR ROLE AND MISSION

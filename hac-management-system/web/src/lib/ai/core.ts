@@ -49,7 +49,12 @@ export function cosine(a: number[], b: number[]): number {
     ),
   );
 }
-export function rank(embedding: number[], artifact: Artifact) {
+export function rank(
+  embedding: number[],
+  artifact: Artifact,
+  limit = 3,
+  distinctProducts = false,
+) {
   if (embedding.length !== artifact.dimension)
     throw new Error("Embedding model version does not match this index.");
   const vector = normalize(embedding);
@@ -85,7 +90,12 @@ export function rank(embedding: number[], artifact: Artifact) {
     backgroundClosest: !first || first.productId === null,
     candidates: ordered
       .filter((entry): entry is Candidate => entry.productId !== null)
-      .slice(0, 3),
+      .filter(
+        (entry, index, all) =>
+          !distinctProducts ||
+          all.findIndex((row) => row.productId === entry.productId) === index,
+      )
+      .slice(0, Math.max(1, Math.min(10, limit))),
     uncertain,
     reason: !first
       ? "No trained examples"

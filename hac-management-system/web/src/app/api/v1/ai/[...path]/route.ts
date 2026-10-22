@@ -1,3 +1,4 @@
+import { recordRecognition } from "@/lib/ai/recognition";
 import { qualityFailures, type GateMetrics } from "@/lib/ai/quality-gate";
 import { withCatalogueImages } from "@/lib/catalogue-images";
 import { randomUUID } from "node:crypto";
@@ -94,67 +95,14 @@ async function route(
           modelVersionId: z.string().optional(),
         })
         .parse(await readJson(request, 128 * 1024));
-      await inspectPermission(user, input.inspectionId);
-      if (input.modelVersionId) requireRole(user, ADMIN);
-      const model = input.modelVersionId
-        ? await db.modelVersion.findUnique({
-            where: { id: input.modelVersionId },
-          })
-        : await db.modelVersion.findFirst({
-            where: { status: "PUBLISHED" },
-            orderBy: { publishedAt: "desc" },
-          });
-      if (!model?.artifact)
-        throw new ApiError(
-          409,
-          "MODEL_NOT_PUBLISHED",
-          "No validated model has been published. Use barcode or manual search.",
-        );
-      const artifact = model.artifact as unknown as Artifact;
-      if (artifact.extractor.version !== input.extractorVersion)
-        throw new ApiError(
-          409,
-          "EXTRACTOR_VERSION_MISMATCH",
-          "Reload the scanner to use the feature extractor version required by this model.",
-        );
-      if (input.embedding.length !== artifact.dimension)
-        throw new ApiError(
-          400,
-          "EXTRACTOR_VERSION_MISMATCH",
-          "The image feature dimensions do not match the published model. Reload the scanner.",
-        );
-      const start = performance.now(),
-        prediction = rank(input.embedding, artifact);
-      const products = await db.product.findMany({
-        where: { id: { in: prediction.candidates.map((c) => c.productId) } },
-        include: { brand: true, variants: true },
-      });
-      const illustratedProducts = await withCatalogueImages(
-        "product",
-        products,
+      return result(
+        await recordRecognition(
+          user,
+          input.embedding,
+          input.inspectionId,
+          input.modelVersionId,
+        ),
       );
-      const candidates = prediction.candidates.map((c) => ({
-        ...c,
-        product: illustratedProducts.find((p) => p.id === c.productId),
-      }));
-      const record = await db.recognitionPrediction.create({
-        data: {
-          modelVersionId: model.id,
-          userId: user.id,
-          inspectionId: input.inspectionId,
-          candidates: json(prediction.candidates),
-          uncertain: prediction.uncertain,
-          latencyMs: Math.round(performance.now() - start),
-        },
-      });
-      return result({
-        ...prediction,
-        candidates,
-        modelVersionId: model.id,
-        predictionId: record.id,
-        scoreMeaning:
-          "Cosine similarity to training examples; not approval confidence.",
-      });
     }
     requireRole(user, ADMIN);
     if (segments[0] === "datasets" && !segments[1]) {

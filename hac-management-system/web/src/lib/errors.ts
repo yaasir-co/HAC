@@ -1,5 +1,5 @@
 import { ZodError } from "zod";
-import { databaseDiagnostic } from "./database-diagnostics";
+import { databaseDiagnostic, databaseErrorCodes } from "./database-diagnostics";
 
 export class ApiError extends Error {
   constructor(
@@ -84,6 +84,9 @@ export function handleError(error: unknown): Response {
     code: typeof code === "string" ? code : "UNEXPECTED_ERROR",
     name: error instanceof Error ? error.name : "UnknownError",
     database: databaseDiagnostic(error)?.code,
+    ...(["P2039", "P2010"].includes(String(code))
+      ? { driverCodes: databaseErrorCodes(error) }
+      : {}),
   });
   if (databaseDiagnostic(error)?.code === "DATABASE_SCHEMA_NOT_READY")
     return Response.json(
@@ -92,6 +95,17 @@ export function handleError(error: unknown): Response {
           code: "DATABASE_SCHEMA_NOT_READY",
           message:
             "The application database update is pending. An administrator must apply the latest database migrations before these records can load.",
+        },
+      },
+      { status: 503 },
+    );
+  if (["P2039", "P2010"].includes(String(code)))
+    return Response.json(
+      {
+        error: {
+          code: "DATABASE_QUERY_FAILED",
+          message:
+            "The database rejected this query. Retry; if it continues, share the DATABASE_QUERY_FAILED code and the driverCodes line from the runtime log.",
         },
       },
       { status: 503 },

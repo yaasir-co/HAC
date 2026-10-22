@@ -220,37 +220,35 @@ try {
     "PASS administrator import: 10 companies, 5 distinct-password supervisors, 2 scoped assignments each, 39 materials, no secret values in later previews.",
   );
   await call("ai/scan-test", undefined, undefined, 401);
-  await call("ai/scan-test", "supervisor0", {}, 403);
-  const testItems = await data("ai/scan-test", "admin", {}, 201);
-  assert.equal(testItems.products.length, 5);
-  assert(testItems.products.every((product) => product.isDemo));
-  const model = await data("ai/scan-test", "supervisor0");
-  assert.equal(model.artifact.dimension, 1024);
-  assert.equal(model.artifact.labels.length, 7);
-  assert.equal(model.products.length, 5);
-  const testVerification = await data(
-    "verification",
-    "supervisor0",
-    {
-      productId: "scan-test-laptop",
-      companyId: setup.companies[0].id,
-      identityConfirmed: true,
-    },
-    200,
-  );
-  assert.equal(testVerification.certificate, null);
-  assert.notEqual(testVerification.primaryStatus, "VERIFIED_APPROVED");
-  const repeatedTestItems = await data("ai/scan-test", "admin", {}, 201);
-  assert.deepEqual(
-    testItems.products.map((p) => p.id),
-    repeatedTestItems.products.map((p) => p.id),
-  );
+  await call("ai/scan-test", "admin", {}, 410);
+  await call("ai/scan-test", "supervisor0", undefined, 410);
   const found = await data(
     "products?q=Chicken%20Boneless&pageSize=16",
     "supervisor0",
   );
   assert(found.length > 0);
   assert(found.every((product) => product.variants.length === 0));
+  const literal = await data(
+    "products?q=" + encodeURIComponent("%' OR 1=1 --"),
+    "supervisor0",
+  );
+  assert.equal(literal.length, 0);
+  sql(
+    `RENAME TABLE \`${database}\`.CatalogueImage TO \`${database}\`.CatalogueImagePaused, \`${database}\`.RawMaterialListing TO \`${database}\`.RawMaterialListingPaused;`,
+  );
+  try {
+    assert((await data("products?q=Chicken", "supervisor0")).length > 0);
+    assert(
+      (await data("catalogue-search?q=Chicken", "supervisor0")).length > 0,
+    );
+  } finally {
+    sql(
+      `RENAME TABLE \`${database}\`.CatalogueImagePaused TO \`${database}\`.CatalogueImage, \`${database}\`.RawMaterialListingPaused TO \`${database}\`.RawMaterialListing;`,
+    );
+  }
+  console.log(
+    "PASS portable catalogue SQL, literal search and optional-table recovery.",
+  );
   await call("checklist-management", "supervisor0", undefined, 403);
   const firstChecklist = await data(
     "checklist-management",
@@ -319,7 +317,7 @@ try {
   assert.equal(retainedVisit.checklistVersion.id, firstChecklist.id);
   assert.equal(retainedVisit.checklistVersion.questions.length, 2);
   console.log(
-    "PASS actual catalogue search and five uncertified test objects; optional versioned admin checklist editing/removal preserves the questions in an existing visit.",
+    "PASS actual catalogue search and retired experimental test endpoints; optional versioned admin checklist editing/removal preserves the questions in an existing visit.",
   );
   const checklist = setup.checklistVersionId;
   const keells = setup.companies[0],
@@ -637,6 +635,73 @@ try {
     },
     409,
   );
+  let edit = await data(`inspections/${inspection.id}/mobile`, "supervisor3");
+  const toRemove = edit.observations.find(
+      (row) => row.productId === first.productId,
+    ),
+    optionalSignature = "data:image/png;base64," + photo.toString("base64");
+  await data(
+    `inspections/${inspection.id}/sign`,
+    "supervisor3",
+    {
+      name: "Supervisor local validation",
+      role: "INSPECTOR",
+      signature: optionalSignature,
+      version: edit.version,
+    },
+    200,
+  );
+  edit = await data(`inspections/${inspection.id}/mobile`, "supervisor3");
+  assert(edit.signatures.some((row) => row.hasSignature));
+  await call(
+    `inspections/${inspection.id}/remove-item`,
+    "supervisor0",
+    { observationId: toRemove.id, version: edit.version },
+    403,
+  );
+  await call(
+    `inspections/${inspection.id}/remove-item`,
+    "supervisor3",
+    { observationId: toRemove.id, version: edit.version - 1 },
+    409,
+  );
+  const linkedCase = await data("investigations", "supervisor3", {
+    companyId: sourceCompany.id,
+    inspectionId: inspection.id,
+    observationId: toRemove.id,
+    productId: first.productId,
+    title: "LOCAL removal preservation test",
+    description:
+      "Synthetic local verification only: retain this formal case when its observation is removed.",
+  });
+  edit = await data(`inspections/${inspection.id}/mobile`, "supervisor3");
+  await data(
+    `inspections/${inspection.id}/remove-item`,
+    "supervisor3",
+    { observationId: toRemove.id, version: edit.version },
+    200,
+  );
+  edit = await data(`inspections/${inspection.id}/mobile`, "supervisor3");
+  assert(!edit.observations.some((row) => row.id === toRemove.id));
+  assert.equal(edit.signatures.length, 0);
+  const retainedCase = await data(
+    `investigations/${linkedCase.id}`,
+    "supervisor3",
+  );
+  assert.equal(retainedCase.observationId, null);
+  assert.equal(retainedCase.inspectionId, inspection.id);
+
+  await data(`inspections/${inspection.id}/observations`, "supervisor3", {
+    productId: first.productId,
+    observedName: savedName,
+    identityConfirmed: true,
+    conclusion: "REVIEW",
+    notes: "Local validation: removed mistake and added the correct record.",
+    clientMutationId: randomUUID(),
+  });
+  console.log(
+    "PASS optional drawn signature, stale/unassigned removal rejection, item removal and signature invalidation, and one deliberate re-add.",
+  );
   const duplicateProduct = setup.materials.find(
     (row) => row.rowNumber === 3,
   ).productId;
@@ -772,57 +837,141 @@ try {
   console.log(
     "PASS genuine 105-photo product upload + 7 background photos, saved counts/limited previews, actual resumable TensorFlow extraction and held-out evaluation; random-noise model cannot be published. Not an accuracy benchmark.",
   );
-  const positiveLibrary=await data("ai/datasets","admin",{name:"SYNTHETIC separable publication lifecycle ONLY"});
-  const labels=[first.productId,apple.productId,null];
-    for (let kind = 0; kind < 3; kind++)
-      for (let group = 0; group < 5; group++) {
-        const canvas = Buffer.alloc(224 * 224 * 3);
-        const cx = [112, 84, 143, 117, 91][group],
-          cy = [110, 131, 86, 72, 101][group],
-          size = [78, 62, 70, 57, 90][group];
-        for (let y = 0; y < 224; y++)
-          for (let x = 0; x < 224; x++) {
-            const i = (y * 224 + x) * 3;
-            const background = 205 + ((x * 13 + y * 7 + group * 31) % 37);
-            let rgb = [background, background, background];
-            if (
-              kind === 0 &&
-              Math.abs(x - cx) < size * 0.7 &&
-              Math.abs(y - cy) < size
-            ) {
-              const stripe = Math.floor((x + group * 7) / 10) % 2;
-              rgb = stripe ? [180, 25, 30] : [245, 105, 45];
-              if (Math.abs(y - cy) < 12) rgb = [250, 230, 160];
-            }
-            if (kind === 1 && Math.hypot(x - cx, y - cy) < size) {
-              const stripe = Math.floor(Math.hypot(x - cx, y - cy) / 8) % 2;
-              rgb = stripe ? [15, 95, 45] : [55, 195, 80];
-              if (Math.abs(x - cx) < 13) rgb = [230, 250, 220];
-            }
-            if (kind === 2) {
-              const wave =
-                Math.sin((x + group * 18) / 19) +
-                Math.cos((y - group * 10) / 22);
-              rgb = wave > 0 ? [25, 50, 160] : [95, 130, 245];
-            }
-            canvas[i] = rgb[0];
-            canvas[i + 1] = rgb[1];
-            canvas[i + 2] = rgb[2];
+  const positiveLibrary = await data("ai/datasets", "admin", {
+    name: "SYNTHETIC separable publication lifecycle ONLY",
+  });
+  const labels = [first.productId, apple.productId, null];
+  for (let kind = 0; kind < 3; kind++)
+    for (let group = 0; group < 5; group++) {
+      const canvas = Buffer.alloc(224 * 224 * 3);
+      const cx = [112, 84, 143, 117, 91][group],
+        cy = [110, 131, 86, 72, 101][group],
+        size = [78, 62, 70, 57, 90][group];
+      for (let y = 0; y < 224; y++)
+        for (let x = 0; x < 224; x++) {
+          const i = (y * 224 + x) * 3;
+          const background = 205 + ((x * 13 + y * 7 + group * 31) % 37);
+          let rgb = [background, background, background];
+          if (
+            kind === 0 &&
+            Math.abs(x - cx) < size * 0.7 &&
+            Math.abs(y - cy) < size
+          ) {
+            const stripe = Math.floor((x + group * 7) / 10) % 2;
+            rgb = stripe ? [180, 25, 30] : [245, 105, 45];
+            if (Math.abs(y - cy) < 12) rgb = [250, 230, 160];
           }
-        const bytes = await sharp(canvas, {
-          raw: { width: 224, height: 224, channels: 3 },
+          if (kind === 1 && Math.hypot(x - cx, y - cy) < size) {
+            const stripe = Math.floor(Math.hypot(x - cx, y - cy) / 8) % 2;
+            rgb = stripe ? [15, 95, 45] : [55, 195, 80];
+            if (Math.abs(x - cx) < 13) rgb = [230, 250, 220];
+          }
+          if (kind === 2) {
+            const wave =
+              Math.sin((x + group * 18) / 19) + Math.cos((y - group * 10) / 22);
+            rgb = wave > 0 ? [25, 50, 160] : [95, 130, 245];
+          }
+          canvas[i] = rgb[0];
+          canvas[i + 1] = rgb[1];
+          canvas[i + 2] = rgb[2];
+        }
+      const bytes = await sharp(canvas, {
+        raw: { width: 224, height: 224, channels: 3 },
+      })
+        .png()
+        .toBuffer();
+      await multipart(
+        `ai/datasets/${positiveLibrary.id}/images`,
+        "admin",
+        {
+          productId: labels[kind] || "",
+          captureGroup: `independent-${kind}-${group}`,
+        },
+        bytes,
+      );
+    }
+  let positive = await data(
+    "ai/training-jobs",
+    "admin",
+    { action: "start", datasetId: positiveLibrary.id },
+    200,
+  );
+  for (let step = 0; positive.status === "TRAINING" && step < 8; step++)
+    positive = await data(
+      "ai/training-jobs",
+      "admin",
+      { action: "step", modelId: positive.id },
+      200,
+    );
+  assert.equal(
+    positive.status,
+    "VALIDATED",
+    `Separable synthetic fixtures failed measured gate: ${JSON.stringify(positive.metrics.publicationBlockedReasons)}`,
+  );
+  await call(`ai/models/${positive.id}/publish`, "supervisor3", {}, 403);
+  await data(`ai/models/${positive.id}/publish`, "admin", {}, 200);
+  assert.equal((await data("ai/published", "supervisor3")).id, positive.id);
+  const capture = await multipart(
+    "ai/capture",
+    "supervisor3",
+    { inspectionId: inspection.id },
+    photo,
+    200,
+  );
+  assert.equal(capture.processing.automaticCapture, true);
+  const foregroundPhoto = await sharp({
+    create: { width: 224, height: 224, channels: 3, background: "#eeeeee" },
+  })
+    .composite([
+      {
+        input: await sharp({
+          create: {
+            width: 96,
+            height: 148,
+            channels: 3,
+            background: "#14518e",
+          },
         })
           .png()
-          .toBuffer();
-        await multipart(`ai/datasets/${positiveLibrary.id}/images`,"admin",{productId:labels[kind]||"",captureGroup:`independent-${kind}-${group}`},bytes);
-      }
-  let positive=await data("ai/training-jobs","admin",{action:"start",datasetId:positiveLibrary.id},200);
-  for(let step=0;positive.status==="TRAINING"&&step<8;step++)positive=await data("ai/training-jobs","admin",{action:"step",modelId:positive.id},200);
-  assert.equal(positive.status,"VALIDATED",`Separable synthetic fixtures failed measured gate: ${JSON.stringify(positive.metrics.publicationBlockedReasons)}`);
-  await call(`ai/models/${positive.id}/publish`,"supervisor3",{},403);
-  await data(`ai/models/${positive.id}/publish`,"admin",{},200);
-  assert.equal((await data("ai/published","supervisor3")).id,positive.id);
-  console.log("PASS real TensorFlow training on 15 separable synthetic images passes measured gates and can be explicitly published by admin only in the disposable database. This is not field accuracy evidence.");
+          .toBuffer(),
+        left: 64,
+        top: 38,
+      },
+    ])
+    .png()
+    .toBuffer();
+  const focusedCapture = await multipart(
+    "ai/capture",
+    "supervisor3",
+    { inspectionId: inspection.id },
+    foregroundPhoto,
+    200,
+  );
+  assert.equal(focusedCapture.processing.foregroundDetected, true);
+  assert.equal(typeof focusedCapture.processing.foregroundFocusUsed, "boolean");
+  await multipart("ai/capture", "supervisor3", {}, Buffer.from("<svg/>"), 415);
+
+  assert(capture.candidates.every((row) => row.score >= 0.75));
+  assert(capture.candidates.length <= 10);
+  assert.equal(typeof capture.guidance, "string");
+  const below = await data(
+    "ai/predict",
+    "supervisor3",
+    {
+      embedding: Array.from({ length: 256 }, (_, i) => (i === 0 ? 1 : 0)),
+      extractorVersion: "mobilenet-v1-025-224-gap-layers-v1",
+      inspectionId: inspection.id,
+    },
+    200,
+  );
+  assert.equal(below.candidates.length, 0);
+  console.log(
+    "PASS opt-in server AI capture with real TensorFlow processing and guidance, and below-75 prediction suppression.",
+  );
+
+  console.log(
+    "PASS real TensorFlow training on 15 separable synthetic images passes measured gates and can be explicitly published by admin only in the disposable database. This is not field accuracy evidence.",
+  );
 
   detail = await data(`inspections/${inspection.id}`, "supervisor3");
   await data(
@@ -842,13 +991,28 @@ try {
     `inspections/${noChecklistInspectionId}/observations`,
     "supervisor0",
     {
-      productId: "scan-test-laptop",
-      observedName: "Laptop - LOCAL VALIDATION ONLY",
+      productId: setup.materials.find((row) => row.rowNumber === 4).productId,
+      observedName: "Material - LOCAL VALIDATION ONLY",
       identityConfirmed: true,
       conclusion: "REVIEW",
       notes: "Camera test object only; no certification.",
       clientMutationId: randomUUID(),
     },
+  );
+  const signable = await data(
+    `inspections/${noChecklistInspectionId}/mobile`,
+    "supervisor0",
+  );
+  await data(
+    `inspections/${noChecklistInspectionId}/sign`,
+    "supervisor0",
+    {
+      name: "Yaasir local validation",
+      role: "INSPECTOR",
+      signature: optionalSignature,
+      version: signable.version,
+    },
+    200,
   );
   const noChecklistDetail = await data(
     `inspections/${noChecklistInspectionId}`,
@@ -859,6 +1023,24 @@ try {
     "supervisor0",
     { version: noChecklistDetail.version, declaration: true },
     200,
+  );
+  const signedSnapshot = await data(
+    `inspections/${noChecklistInspectionId}`,
+    "supervisor0",
+  );
+  assert(
+    signedSnapshot.snapshot.signatures[0].signature.startsWith(
+      "data:image/png;base64,",
+    ),
+  );
+  await call(
+    `inspections/${noChecklistInspectionId}/remove-item`,
+    "supervisor0",
+    {
+      observationId: signedSnapshot.observations[0].id,
+      version: signedSnapshot.version,
+    },
+    409,
   );
   const nullChecklistReport = await call(
     `reports/${noChecklistInspectionId}?format=pdf`,

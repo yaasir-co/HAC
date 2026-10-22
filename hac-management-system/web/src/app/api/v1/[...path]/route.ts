@@ -1,3 +1,6 @@
+import { queryCatalogue, countCatalogue } from "@/lib/catalogue-query";
+import { removeInspectionItem } from "@/lib/remove-inspection-item";
+import { databaseDiagnostic } from "@/lib/database-diagnostics";
 import { withCatalogueImages } from "@/lib/catalogue-images";
 import { observationIdentity } from "@/lib/observation-identity";
 import { recordUnlisted } from "@/lib/unlisted-observation";
@@ -385,24 +388,38 @@ async function get(
             }
           : {}),
       };
+      const catalogueOptions = {
+        q,
+        status,
+        type: resource === "raw-materials" ? "RAW_MATERIAL" : undefined,
+        take: pageSize,
+        skip,
+        companyIds: staff ? (companyId?.in as string[]) : undefined,
+      };
       const [data, total] = await Promise.all([
-        db.product.findMany({
-          where,
-          include: {
-            rawMaterialListing: { select: { certificateExpiry: true } },
-            brand: { select: { id: true, name: true } },
-            manufacturer: { select: { id: true, name: true } },
-            variants: {
-              select: { id: true, name: true, sku: true, barcode: true },
-            },
-          },
-          skip,
-          take: pageSize,
-          orderBy: [{ name: "asc" }, { id: "asc" }],
-        }),
-        db.product.count({ where }),
+        queryCatalogue(catalogueOptions),
+        countCatalogue(catalogueOptions),
       ]);
-      return paged(await withCatalogueImages("product", data), total);
+      let summaries: { productId: string; certificateExpiry: Date | null }[] =
+        [];
+      try {
+        summaries = await db.rawMaterialListing.findMany({
+          where: { productId: { in: data.map((row) => row.id) } },
+          select: { productId: true, certificateExpiry: true },
+        });
+      } catch (error) {
+        if (databaseDiagnostic(error)?.code !== "DATABASE_SCHEMA_NOT_READY")
+          throw error;
+        console.warn(
+          "[catalogue] Source expiry summary unavailable: DATABASE_SCHEMA_NOT_READY",
+        );
+      }
+      const enriched = data.map((row) => ({
+        ...row,
+        rawMaterialListing:
+          summaries.find((summary) => summary.productId === row.id) || null,
+      }));
+      return paged(await withCatalogueImages("product", enriched), total);
     }
     case "certificates": {
       const scope: Prisma.CertificateWhereInput = companyId
@@ -1323,16 +1340,37 @@ async function post(
       );
       return json(result);
     }
+    if (action === "remove-item")
+      return json(
+        await removeInspectionItem(
+          user,
+          recordId,
+          await body(
+            request,
+            z.object({
+              observationId: id,
+              version: z.number().int().positive(),
+            }),
+          ),
+        ),
+      );
     if (action === "sign") {
       const p = await body(
         request,
         z.object({
+          version: z.number().int().positive().optional(),
           name: text,
           role: z.enum(["INSPECTOR", "COMPANY_REPRESENTATIVE"]),
           signature: z.string().max(500000).optional(),
           reason: note.optional(),
         }),
       );
+      if (p.version !== undefined && p.version !== record.version)
+        throw new ApiError(
+          409,
+          "VERSION_CONFLICT",
+          "The inspection changed. Refresh the review before signing.",
+        );
       if (p.role === "INSPECTOR" && user.id !== record.inspectorId)
         throw new ApiError(
           403,
@@ -1358,6 +1396,7 @@ async function post(
           "SIGNATURE_REASON_REQUIRED",
           "Record why the representative signature is unavailable.",
         );
+      delete p.version;
       if (p.signature) {
         const prepared = await prepareEvidence(
           Buffer.from(p.signature.split(",")[1], "base64"),

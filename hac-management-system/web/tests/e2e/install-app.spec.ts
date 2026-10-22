@@ -11,7 +11,7 @@ test("first mobile visit offers native installation with the circular HAC icon a
   await expect(prompt).toBeVisible();
   await expect(
     prompt.getByRole("img", { name: "HAC halal app icon" }),
-  ).toHaveAttribute("src", "/branding/hac-app-192.png");
+  ).toHaveAttribute("src", "/branding/hac-original-v4-192.png");
   await page.evaluate(() => {
     const event = new Event("beforeinstallprompt");
     Object.assign(event, {
